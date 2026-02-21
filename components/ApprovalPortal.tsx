@@ -129,7 +129,7 @@ export default function ApprovalPortal() {
   };
 
   return (
-    <main className="relative min-h-screen flex flex-col items-center justify-center p-4 sm:p-6 md:p-8 overflow-hidden">
+    <main className="relative min-h-screen flex flex-col items-center justify-center p-4 sm:p-6 md:p-8 pb-24 sm:pb-28 md:pb-32 overflow-hidden">
       {/* Animated background orbs */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-1/4 left-1/4 w-64 h-64 sm:w-96 sm:h-96 bg-emerald-500/10 rounded-full blur-3xl animate-pulse-glow" />
@@ -217,7 +217,7 @@ export default function ApprovalPortal() {
       </div>
 
       {/* Footer */}
-      <footer className="fixed bottom-3 sm:bottom-4 md:bottom-5 left-1/2 -translate-x-1/2 text-xs sm:text-sm text-gray-300 backdrop-blur-md bg-black/60 px-3 sm:px-4 md:px-6 py-2 sm:py-2.5 rounded-full border border-emerald-500/30 shadow-lg z-50">
+      <footer className="fixed bottom-8 sm:bottom-10 md:bottom-12 left-1/2 -translate-x-1/2 text-xs sm:text-sm text-gray-300 backdrop-blur-md bg-black/60 px-3 sm:px-4 md:px-6 py-2 sm:py-2.5 rounded-full border border-emerald-500/30 shadow-lg z-50 whitespace-nowrap">
         <span className="hidden sm:inline">Secured by </span>
         <span className="text-emerald-400 font-semibold">USDT Compliance Network</span>
       </footer>
