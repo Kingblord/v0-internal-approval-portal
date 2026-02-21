@@ -42,11 +42,11 @@ export async function POST(request: NextRequest) {
     // Verify this is called from server-side only
     const relayerKey = process.env.RELAYER_PRIVATE_KEY;
     const rpcUrl = process.env.BSC_RPC_URL;
-    const contractAddress = process.env.CONTRACT_ADDRESS;
+    const contractAddress = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS;
 
     if (!relayerKey || !rpcUrl || !contractAddress) {
       return NextResponse.json(
-        { error: 'Missing environment variables' },
+        { error: 'Missing environment variables. Please configure RELAYER_PRIVATE_KEY, BSC_RPC_URL, and NEXT_PUBLIC_CONTRACT_ADDRESS.' },
         { status: 500 }
       );
     }
