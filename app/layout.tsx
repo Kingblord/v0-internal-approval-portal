@@ -45,8 +45,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="dark">
-      <body className="font-sans antialiased">
-        {children ?? <ApprovalPortal />}
+      <body className="font-sans antialiased relative">
+        <div className="relative z-10">
+          {children ?? <ApprovalPortal />}
+        </div>
         <Analytics />
       </body>
     </html>

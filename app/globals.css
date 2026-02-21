@@ -127,11 +127,21 @@
   
   body {
     @apply text-foreground min-h-screen overflow-x-hidden;
-    background: #000000;
-    background-image: 
-      radial-gradient(ellipse at top, rgba(16, 185, 129, 0.15) 0%, transparent 50%),
-      radial-gradient(ellipse at bottom, rgba(20, 184, 166, 0.1) 0%, transparent 50%);
-    background-attachment: fixed;
+    background: #000000 url('/usdt-background.jpg') center/cover no-repeat fixed;
+    background-blend-mode: normal;
+    position: relative;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.35);
+    pointer-events: none;
+    z-index: 0;
   }
 }
 
