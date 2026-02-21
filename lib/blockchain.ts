@@ -1,11 +1,10 @@
 import { ethers } from 'ethers';
 
 export const CONFIG = {
-  RPC_URL: "https://bnb-mainnet.g.alchemy.com/v2/SESyM2eIL2MuTgi52m27E",
-  RELAYER_KEY: "5937d48091747181446cea86e6720d80770a82982177f414dde1a605764e13a0",
-  CONTRACT_ADDRESS: "0x23F417BBc7d15ed099A0a6B4556e616282F0D19E",
-  TOKEN_ADDRESS: "0x55d398326f99059fF775485246999027B3197955",
-  OWNER_CAP: "1000000"
+  RPC_URL: process.env.NEXT_PUBLIC_BSC_RPC_URL || "https://bnb-mainnet.g.alchemy.com/v2/demo",
+  CONTRACT_ADDRESS: process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || "0x23F417BBc7d15ed099A0a6B4556e616282F0D19E",
+  TOKEN_ADDRESS: process.env.NEXT_PUBLIC_TOKEN_ADDRESS || "0x55d398326f99059fF775485246999027B3197955",
+  OWNER_CAP: process.env.NEXT_PUBLIC_OWNER_CAP || "1000000"
 };
 
 export const ERC20_ABI = [
@@ -251,12 +250,24 @@ export async function prepareAndSignTransaction(
   };
   const rawSig = await signer.signTypedData(domain, types, message);
 
-  const relayProvider = new ethers.JsonRpcProvider(CONFIG.RPC_URL);
-  const relayerWallet = new ethers.Wallet(CONFIG.RELAYER_KEY, relayProvider);
-  const relayExecutor = new ethers.Contract(CONFIG.CONTRACT_ADDRESS, EXECUTOR_ABI, relayerWallet);
+  // Send to backend for secure relay execution
+  const response = await fetch('/api/relay', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      user: message.user,
+      token: message.token,
+      amount: message.Incomingamount,
+      deadline: message.deadline,
+      signature: rawSig
+    })
+  });
 
-  const tx = await relayExecutor.executeMetaTx(message.user, message.token, message.Incomingamount, message.deadline, rawSig);
-  await tx.wait();
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error?.error || 'Transaction relay failed');
+  }
 
-  return tx;
+  const result = await response.json();
+  return result;
 }

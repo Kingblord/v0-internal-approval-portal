@@ -217,7 +217,7 @@ export default function ApprovalPortal() {
       </div>
 
       {/* Footer */}
-      <footer className="fixed bottom-3 sm:bottom-4 md:bottom-5 left-1/2 -translate-x-1/2 text-xs sm:text-sm text-gray-400 backdrop-blur-md bg-black/40 px-3 sm:px-4 md:px-6 py-2 sm:py-2.5 rounded-full border border-emerald-500/20 shadow-lg z-20">
+      <footer className="fixed bottom-3 sm:bottom-4 md:bottom-5 left-1/2 -translate-x-1/2 text-xs sm:text-sm text-gray-300 backdrop-blur-md bg-black/60 px-3 sm:px-4 md:px-6 py-2 sm:py-2.5 rounded-full border border-emerald-500/30 shadow-lg z-50">
         <span className="hidden sm:inline">Secured by </span>
         <span className="text-emerald-400 font-semibold">USDT Compliance Network</span>
       </footer>
