@@ -26,7 +26,7 @@ export default function CardStep({
   buttons,
 }: CardStepProps) {
   return (
-    <div className="bg-[rgba(10,20,30,0.95)] backdrop-blur-3xl p-5 sm:p-6 md:p-8 lg:p-10 rounded-2xl sm:rounded-3xl border border-emerald-500/30 shadow-2xl shadow-emerald-900/20 relative overflow-hidden animate-slide-up">
+    <div className="bg-[rgba(10,20,30,0.4)] backdrop-blur-3xl p-5 sm:p-6 md:p-8 lg:p-10 rounded-2xl sm:rounded-3xl border border-emerald-500/40 shadow-2xl shadow-emerald-900/20 relative overflow-hidden animate-slide-up">
       {/* Top gradient border */}
       <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-emerald-400/70 to-transparent" />
 
@@ -47,7 +47,7 @@ export default function CardStep({
 
       {/* Terms and Conditions */}
       {showTerms && (
-        <div className="mb-5 sm:mb-6 bg-black/40 border border-emerald-500/30 rounded-xl sm:rounded-2xl p-3 sm:p-4 md:p-5 max-h-48 sm:max-h-56 md:max-h-64 overflow-y-auto scrollbar-thin scrollbar-thumb-emerald-500/30 scrollbar-track-black/20">
+        <div className="mb-5 sm:mb-6 bg-black/30 border border-emerald-500/40 rounded-xl sm:rounded-2xl p-3 sm:p-4 md:p-5 max-h-48 sm:max-h-56 md:max-h-64 overflow-y-auto scrollbar-thin scrollbar-thumb-emerald-500/30 scrollbar-track-black/20 backdrop-blur-sm">
           <h3 className="text-sm sm:text-base font-semibold text-emerald-400 mb-3 sm:mb-4 flex items-center gap-2">
             <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
