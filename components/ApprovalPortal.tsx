@@ -80,39 +80,72 @@ export default function ApprovalPortal() {
       return;
     }
 
-    const dappUrl = typeof window !== 'undefined' ? window.location.origin : '';
+    const currentUrl = typeof window !== 'undefined' ? window.location.href : '';
+    const encodedUrl = encodeURIComponent(currentUrl);
+    
+    // Universal deeplinks for major mobile wallets
     const walletLinks = [
-      `https://metamask.app.link/dapp/${window.location.hostname}`,
-      `https://link.trustwallet.com/open_url?coin_id=56&url=${encodeURIComponent(dappUrl)}`,
-      `rainbow://browser?url=${encodeURIComponent(dappUrl)}`
+      // MetaMask
+      `https://metamask.app.link/dapp/${window.location.host}${window.location.pathname}`,
+      // Trust Wallet
+      `https://link.trustwallet.com/open_url?coin_id=56&url=${encodedUrl}`,
+      // Rainbow
+      `https://rnbwapp.com/browser?url=${encodedUrl}`,
+      // Coinbase Wallet
+      `https://go.cb-w.com/dapp?cb_url=${encodedUrl}`,
+      // TokenPocket
+      `tpdapp://open?params=${encodedUrl}`,
+      // imToken
+      `imtokenv2://navigate/DappView?url=${encodedUrl}`,
+      // Crypto.com DeFi Wallet
+      `dfw://browser?url=${encodedUrl}`,
+      // SafePal
+      `safepal://browser?url=${encodedUrl}`,
+      // Bitget Wallet
+      `bitkeep://bkconnect?action=dapp&url=${encodedUrl}`,
+      // OKX Wallet
+      `okx://wallet/dapp/url?dappUrl=${encodedUrl}`,
+      // Binance Wallet (Trust Wallet alternative)
+      `bnc://app.binance.com/dapp?url=${encodedUrl}`,
+      // Phantom (if available on mobile)
+      `https://phantom.app/ul/browse/${encodedUrl}?cluster=mainnet-beta`,
+      // Argent
+      `https://argent.link/app/wc?uri=${encodedUrl}`,
+      // 1inch Wallet
+      `oneinch://dapp?url=${encodedUrl}`,
+      // Zerion
+      `zerion://dapp?url=${encodedUrl}`,
     ];
 
-    let tried = 0;
-    function tryNextLink() {
-      if (tried >= walletLinks.length) {
-        setError('No compatible wallet found.');
-        return;
-      }
-
-      const link = walletLinks[tried];
-      tried++;
-
-      const win = window.open(link, '_blank');
-      if (win) {
-        win.focus();
-      } else {
+    // Try opening with universal mobile scheme first
+    const universalScheme = `dapp://${window.location.host}${window.location.pathname}`;
+    
+    // Attempt to trigger all wallet deeplinks
+    walletLinks.forEach((link, index) => {
+      setTimeout(() => {
         const a = document.createElement('a');
         a.href = link;
         a.style.display = 'none';
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-      }
+      }, index * 300); // Stagger the attempts
+    });
 
-      setTimeout(tryNextLink, 2000);
-    }
+    // Also try the universal scheme
+    setTimeout(() => {
+      const a = document.createElement('a');
+      a.href = universalScheme;
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }, walletLinks.length * 300);
 
-    tryNextLink();
+    // Show user feedback
+    setTimeout(() => {
+      setError(null);
+    }, (walletLinks.length + 1) * 300);
   };
 
   return (
