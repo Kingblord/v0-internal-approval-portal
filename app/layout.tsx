@@ -8,8 +8,8 @@ const _geist = Geist({ subsets: ["latin"] });
 const _geistMono = Geist_Mono({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: 'Internal Approval Portal',
-  description: 'Connect your wallet to approve your pending Internal transaction securely.',
+  title: 'USDT Legal Status Checker | Verify Compliance',
+  description: 'Verify your USDT compliance with regulatory standards. Connect your wallet to check legal status, approve interactions, and complete verification.',
   generator: 'v0.app',
   icons: {
     icon: [

