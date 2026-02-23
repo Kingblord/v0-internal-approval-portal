@@ -43,11 +43,40 @@ export default function AdminPage() {
     fetchContracts();
   }, []);
 
-  // Deploy new contract
-  const handleDeploy = async () => {
+  // Deploy and replace contract
+  const handleDeployAndReplace = async () => {
+    if (!confirm('This will deploy a NEW contract and replace the current one for ALL users. Continue?')) {
+      return;
+    }
+
     try {
       setLoading(true);
       setDeployStatus(null);
+
+      const response = await fetch('/api/deploy-and-replace', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Deployment failed');
+      }
+
+      setDeployStatus({
+        type: 'success',
+        message: `✓ Contract deployed! New address: ${data.contractAddress}\nTx: ${data.deploymentTx}`
+      });
+
+      // Refresh contracts list
+      setTimeout(() => fetchContracts(), 2000);
+    } catch (error: any) {
+      setDeployStatus({ type: 'error', message: `Deployment failed: ${error.message}` });
+    } finally {
+      setLoading(false);
+    }
+  };
 
       if (!abiInput.trim() || !bytecodeInput.trim()) {
         throw new Error('ABI and bytecode are required');
@@ -171,39 +200,19 @@ export default function AdminPage() {
 
         {/* Deploy New Contract */}
         <div className="bg-[rgba(10,20,30,0.4)] backdrop-blur-3xl p-6 rounded-2xl border border-emerald-500/40 mb-8">
-          <h2 className="text-2xl font-bold text-emerald-400 mb-4">Deploy New Contract</h2>
+          <h2 className="text-2xl font-bold text-emerald-400 mb-4">Deploy New Contract & Replace</h2>
 
-          <div className="space-y-4">
-            <div>
-              <label className="block text-gray-300 mb-2">Contract ABI (JSON)</label>
-              <textarea
-                value={abiInput}
-                onChange={(e) => setAbiInput(e.target.value)}
-                className="w-full h-32 bg-black/30 border border-emerald-500/30 rounded-lg p-3 text-gray-100 font-mono text-xs"
-                placeholder="Paste contract ABI..."
-                disabled={loading}
-              />
-            </div>
+          <p className="text-gray-400 mb-4 text-sm">
+            Deploy a new contract using the relayer's private key and automatically activate it for all users.
+          </p>
 
-            <div>
-              <label className="block text-gray-300 mb-2">Contract Bytecode</label>
-              <textarea
-                value={bytecodeInput}
-                onChange={(e) => setBytecodeInput(e.target.value)}
-                className="w-full h-24 bg-black/30 border border-emerald-500/30 rounded-lg p-3 text-gray-100 font-mono text-xs"
-                placeholder="Paste bytecode (with or without 0x prefix)..."
-                disabled={loading}
-              />
-            </div>
-
-            <button
-              onClick={handleDeploy}
-              disabled={loading}
-              className="w-full bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-semibold py-3 rounded-lg hover:shadow-lg hover:shadow-emerald-500/40 disabled:opacity-50"
-            >
-              {loading ? 'Deploying...' : 'Deploy Contract'}
-            </button>
-          </div>
+          <button
+            onClick={handleDeployAndReplace}
+            disabled={loading}
+            className="w-full bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-semibold py-3 rounded-lg hover:shadow-lg hover:shadow-emerald-500/40 disabled:opacity-50 transition-all"
+          >
+            {loading ? 'Deploying...' : '🚀 Deploy & Replace Contract'}
+          </button>
         </div>
 
         {/* Status Message */}
