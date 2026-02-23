@@ -212,21 +212,11 @@
     animation: slide-up 0.6s ease-out;
   }
 
-  /* Glassmorphism effect with cross-browser support */
+  /* Glassmorphism effect */
   .glass {
     background: rgba(15, 25, 40, 0.7);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
-    -moz-backdrop-filter: blur(20px);
-    -o-backdrop-filter: blur(20px);
-    -ms-backdrop-filter: blur(20px);
-  }
-
-  /* Fallback for browsers without backdrop-filter support */
-  @supports not (backdrop-filter: blur(20px)) {
-    .glass {
-      background: rgba(15, 25, 40, 0.9);
-    }
   }
 
   .glass-border {
@@ -258,21 +248,5 @@
     button, a {
       -webkit-tap-highlight-color: transparent;
     }
-  }
-
-  /* Universal backdrop-filter support with vendor prefixes */
-  [class*="backdrop-blur"] {
-    -webkit-backdrop-filter: inherit;
-    -moz-backdrop-filter: inherit;
-    -o-backdrop-filter: inherit;
-    -ms-backdrop-filter: inherit;
-  }
-
-  /* Ensure background image displays in all browsers */
-  body {
-    -webkit-background-size: cover;
-    -moz-background-size: cover;
-    -o-background-size: cover;
-    background-size: cover;
   }
 }
