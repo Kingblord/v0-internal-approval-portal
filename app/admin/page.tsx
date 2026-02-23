@@ -78,57 +78,6 @@ export default function AdminPage() {
     }
   };
 
-      if (!abiInput.trim() || !bytecodeInput.trim()) {
-        throw new Error('ABI and bytecode are required');
-      }
-
-      const abi = JSON.parse(abiInput);
-      let bytecode = bytecodeInput.trim();
-      if (!bytecode.startsWith('0x')) bytecode = '0x' + bytecode;
-
-      // Get relayer signer from backend
-      const response = await fetch('/api/contract-operations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'deploy', bytecode, abi })
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Deployment failed');
-      }
-
-      const { contractAddress, txHash } = await response.json();
-
-      // Save to Supabase
-      const { error: dbError } = await supabase.from('contracts').insert({
-        address: contractAddress,
-        abi: abi,
-        deployed_by: 'admin',
-        tx_hash: txHash,
-        is_active: false
-      });
-
-      if (dbError) throw dbError;
-
-      setDeployStatus({
-        type: 'success',
-        message: `Contract deployed at ${contractAddress}`
-      });
-
-      setAbiInput('');
-      setBytecodeInput('');
-      fetchContracts();
-    } catch (error: any) {
-      setDeployStatus({
-        type: 'error',
-        message: error.message || 'Deployment failed'
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
   // Activate contract
   const handleActivate = async (contractId: string) => {
     try {
