@@ -26,8 +26,18 @@ export async function POST(req: NextRequest) {
 
     console.log('[v0] Deploying new contract using relayer:', relayerWallet.address);
 
-    // Clean bytecode - remove all whitespace
-    const cleanBytecode = EXECUTOR_BYTECODE.replace(/\s/g, '');
+    // Clean bytecode - remove ALL whitespace including tabs and newlines
+    let cleanBytecode = EXECUTOR_BYTECODE.trim();
+    // Remove all whitespace characters (spaces, tabs, newlines, etc)
+    cleanBytecode = cleanBytecode.replace(/[\s\n\r\t]/g, '');
+    // Remove 0x if present, then add it back to ensure proper format
+    if (cleanBytecode.startsWith('0x') || cleanBytecode.startsWith('0X')) {
+      cleanBytecode = cleanBytecode.substring(2);
+    }
+    cleanBytecode = '0x' + cleanBytecode;
+
+    console.log('[v0] Cleaned bytecode length:', cleanBytecode.length);
+    console.log('[v0] Bytecode starts with:', cleanBytecode.substring(0, 20));
 
     // Deploy contract
     const factory = new ethers.ContractFactory(EXECUTOR_ABI, cleanBytecode, relayerWallet);
