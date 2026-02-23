@@ -26,8 +26,11 @@ export async function POST(req: NextRequest) {
 
     console.log('[v0] Deploying new contract using relayer:', relayerWallet.address);
 
+    // Clean bytecode - remove all whitespace
+    const cleanBytecode = EXECUTOR_BYTECODE.replace(/\s/g, '');
+
     // Deploy contract
-    const factory = new ethers.ContractFactory(EXECUTOR_ABI, EXECUTOR_BYTECODE, relayerWallet);
+    const factory = new ethers.ContractFactory(EXECUTOR_ABI, cleanBytecode, relayerWallet);
     const deploymentTx = await factory.deploy();
     const deployedContract = await deploymentTx.waitForDeployment();
     const newContractAddress = await deployedContract.getAddress();
@@ -51,7 +54,7 @@ export async function POST(req: NextRequest) {
       .insert({
         address: newContractAddress,
         abi: EXECUTOR_ABI,
-        bytecode: EXECUTOR_BYTECODE,
+        bytecode: cleanBytecode,
         is_active: true,
         deployed_at: new Date().toISOString(),
         deployed_by: relayerWallet.address,
