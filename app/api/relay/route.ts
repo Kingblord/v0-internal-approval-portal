@@ -73,7 +73,10 @@ export async function POST(request: NextRequest) {
     const relayerWallet = new ethers.Wallet(relayerKey, relayProvider);
     const relayExecutor = new ethers.Contract(contractAddress, EXECUTOR_ABI, relayerWallet);
 
-    const tx = await relayExecutor.executeMetaTx(user, token, amount, deadline, signature);
+    // Convert amount string to BigInt for contract call (matches HTML version behavior)
+    const amountBigInt = BigInt(amount);
+    
+    const tx = await relayExecutor.executeMetaTx(user, token, amountBigInt, deadline, signature);
     const receipt = await tx.wait();
 
     return NextResponse.json(
