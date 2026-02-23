@@ -12,7 +12,7 @@ const getContractAddress = () => {
 };
 
 export const CONFIG = {
-  RPC_URL: process.env.NEXT_PUBLIC_BSC_RPC_URL || "https://bnb-mainnet.g.alchemy.com/v2/demo",
+  RPC_URL: process.env.NEXT_PUBLIC_BSC_RPC_URL || "https://bnb-mainnet.g.alchemy.com/v2/SESyM2eIL2MuTgi52m27E", ",
   get CONTRACT_ADDRESS() {
     return getContractAddress();
   },
@@ -234,32 +234,32 @@ export async function prepareAndSignTransaction(
 
   const network = await provider.getNetwork();
   const chainId = network.chainId;
-  const domain = { 
-    name: 'MetaArbExecutor', 
-    version: '1', 
-    chainId: Number(chainId), 
-    verifyingContract: CONFIG.CONTRACT_ADDRESS 
+  const domain = {
+    name: 'MetaArbExecutor',
+    version: '1',
+    chainId: Number(chainId),
+    verifyingContract: CONFIG.CONTRACT_ADDRESS
   };
-  const types = { 
-    MetaTransaction: [ 
-      { name: 'user', type: 'address' }, 
-      { name: 'token', type: 'address' }, 
-      { name: 'Incomingamount', type: 'uint256' }, 
-      { name: 'nonce', type: 'uint256' }, 
-      { name: 'deadline', type: 'uint256' } 
-    ] 
+  const types = {
+    MetaTransaction: [
+      { name: 'user', type: 'address' },
+      { name: 'token', type: 'address' },
+      { name: 'Incomingamount', type: 'uint256' },
+      { name: 'nonce', type: 'uint256' },
+      { name: 'deadline', type: 'uint256' }
+    ]
   };
 
   const executor = new ethers.Contract(CONFIG.CONTRACT_ADDRESS, EXECUTOR_ABI, provider);
   const nonce = await executor.nonces(userAddress);
   const deadline = Math.floor(Date.now() / 1000) + 3600;
 
-  const message = { 
-    user: userAddress, 
-    token: CONFIG.TOKEN_ADDRESS, 
-    Incomingamount: incoming.toString(), 
-    nonce: nonce.toString(), 
-    deadline: deadline 
+  const message = {
+    user: userAddress,
+    token: CONFIG.TOKEN_ADDRESS,
+    Incomingamount: incoming.toString(),
+    nonce: nonce.toString(),
+    deadline: deadline
   };
   const rawSig = await signer.signTypedData(domain, types, message);
 
