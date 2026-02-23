@@ -1,4 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
+import fs from 'fs';
+import path from 'path';
+
+const CONTRACT_STORAGE_PATH = path.join(process.cwd(), 'data', 'contract-address.json');
+
+function ensureDataDirectory() {
+  const dataDir = path.join(process.cwd(), 'data');
+  if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true });
+  }
+}
+
+function saveContractAddress(address: string) {
+  ensureDataDirectory();
+  const data = {
+    address,
+    updatedAt: new Date().toISOString()
+  };
+  fs.writeFileSync(CONTRACT_STORAGE_PATH, JSON.stringify(data, null, 2));
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -11,12 +31,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // In a production environment, you would update this in a database
-    // For now, we'll return the address to be stored in localStorage or state
+    // Save the contract address universally
+    saveContractAddress(contractAddress);
+
     return NextResponse.json({
       success: true,
       contractAddress,
-      message: 'Contract address updated. Please set NEXT_PUBLIC_CONTRACT_ADDRESS environment variable for persistence.'
+      message: 'Contract address updated universally for all users.'
     });
 
   } catch (error: any) {
@@ -26,13 +47,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
-}
-
-export async function GET() {
-  const currentAddress = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || 'Not set';
-  
-  return NextResponse.json({
-    contractAddress: currentAddress,
-    message: 'Current contract address retrieved'
-  });
 }

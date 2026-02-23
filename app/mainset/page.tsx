@@ -20,15 +20,9 @@ export default function MainSettings() {
 
   const fetchCurrentContract = async () => {
     try {
-      const response = await fetch('/api/update-contract');
+      const response = await fetch('/api/get-contract');
       const data = await response.json();
-      setCurrentContract(data.contractAddress);
-      
-      // Also check localStorage for any updated address
-      const storedAddress = localStorage.getItem('contract_address');
-      if (storedAddress && storedAddress !== 'Not set') {
-        setCurrentContract(storedAddress);
-      }
+      setCurrentContract(data.address);
     } catch (error) {
       console.error('[v0] Failed to fetch contract:', error);
       setCurrentContract('Error loading contract');
@@ -49,10 +43,13 @@ export default function MainSettings() {
 
       if (response.ok && data.success) {
         setNewContract(data.contractAddress);
+        setCurrentContract(data.contractAddress);
         setDeployStatus({
           type: 'success',
-          message: `Contract deployed successfully! Address: ${data.contractAddress}`
+          message: `Contract deployed and activated! Address: ${data.contractAddress}`
         });
+        // Refresh to show new address
+        setTimeout(() => fetchCurrentContract(), 1000);
       } else {
         throw new Error(data.error || 'Deployment failed');
       }
@@ -89,14 +86,14 @@ export default function MainSettings() {
       const data = await response.json();
 
       if (response.ok && data.success) {
-        // Store in localStorage for immediate use
-        localStorage.setItem('contract_address', newContract);
         setCurrentContract(newContract);
         setDeployStatus({
           type: 'success',
-          message: 'Contract address updated successfully! The webapp will use this new contract.'
+          message: 'Contract address updated universally! All users will now use this contract.'
         });
         setNewContract('');
+        // Refresh to confirm
+        setTimeout(() => fetchCurrentContract(), 1000);
       } else {
         throw new Error(data.error || 'Update failed');
       }
@@ -111,14 +108,30 @@ export default function MainSettings() {
     }
   };
 
-  const handleDisposeContract = () => {
-    if (confirm('Are you sure you want to dispose the current contract? This action cannot be undone.')) {
-      localStorage.removeItem('contract_address');
-      setCurrentContract(process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || 'Not set');
-      setDeployStatus({
-        type: 'info',
-        message: 'Contract disposed. Using default contract address.'
-      });
+  const handleDisposeContract = async () => {
+    if (confirm('Are you sure you want to revert to the default contract? This will affect all users.')) {
+      try {
+        const defaultAddress = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || '0x23F417BBc7d15ed099A0a6B4556e616282F0D19E';
+        const response = await fetch('/api/update-contract', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contractAddress: defaultAddress })
+        });
+
+        if (response.ok) {
+          setCurrentContract(defaultAddress);
+          setDeployStatus({
+            type: 'info',
+            message: 'Reverted to default contract address for all users.'
+          });
+          setTimeout(() => fetchCurrentContract(), 1000);
+        }
+      } catch (error: any) {
+        setDeployStatus({
+          type: 'error',
+          message: `Failed to revert: ${error.message}`
+        });
+      }
     }
   };
 
