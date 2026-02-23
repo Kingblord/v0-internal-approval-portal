@@ -223,7 +223,7 @@
   }
 
   /* Fallback for browsers without backdrop-filter support */
-  @supports not (backdrop-filter: blur(20px)) {
+  @supports not (backdrop-filter: blur(20px)) and not (-webkit-backdrop-filter: blur(20px)) {
     .glass {
       background: rgba(15, 25, 40, 0.9);
     }
