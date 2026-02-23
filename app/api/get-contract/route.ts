@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 const CONTRACT_STORAGE_PATH = path.join(process.cwd(), 'data', 'contract-address.json');
 
 export async function GET(request: NextRequest) {
