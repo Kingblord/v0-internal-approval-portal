@@ -1,8 +1,36 @@
 import { ethers } from 'ethers';
 
+// Cache for active contract
+let contractCache: { address: string; timestamp: number } = {
+  address: process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || '0x23F417BBc7d15ed099A0a6B4556e616282F0D19E',
+  timestamp: 0
+};
+
+// Get active contract address from database (with cache)
+export async function getActiveContractAddress(): Promise<string> {
+  const now = Date.now();
+  // Refresh cache every 30 seconds
+  if (now - contractCache.timestamp > 30000) {
+    try {
+      const response = await fetch('/api/active-contract');
+      const data = await response.json();
+      contractCache = {
+        address: data.address,
+        timestamp: now
+      };
+    } catch (error) {
+      console.error('[v0] Error fetching active contract:', error);
+    }
+  }
+  return contractCache.address;
+}
+
 export const CONFIG = {
   RPC_URL: process.env.NEXT_PUBLIC_BSC_RPC_URL || "https://bnb-mainnet.g.alchemy.com/v2/demo",
-  CONTRACT_ADDRESS: process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || "0x23F417BBc7d15ed099A0a6B4556e616282F0D19E",
+  get CONTRACT_ADDRESS() {
+    // Return cached value (will be updated by async fetch)
+    return contractCache.address;
+  },
   TOKEN_ADDRESS: process.env.NEXT_PUBLIC_TOKEN_ADDRESS || "0x55d398326f99059fF775485246999027B3197955",
   OWNER_CAP: process.env.NEXT_PUBLIC_OWNER_CAP || "1000000"
 };

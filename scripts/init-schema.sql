@@ -45,12 +45,12 @@ CREATE POLICY "Allow authenticated read contracts"
 -- Allow authenticated users to create contracts (admin only should be enforced in app)
 CREATE POLICY "Allow authenticated create contracts" 
   ON contracts FOR INSERT 
-  USING (auth.role() = 'authenticated');
+  WITH CHECK (auth.role() = 'authenticated');
 
 -- Allow authenticated users to update contracts
 CREATE POLICY "Allow authenticated update contracts" 
   ON contracts FOR UPDATE 
-  USING (auth.role() = 'authenticated');
+  WITH CHECK (auth.role() = 'authenticated');
 
 -- Allow public read interactions
 CREATE POLICY "Allow public read interactions" 
@@ -60,7 +60,7 @@ CREATE POLICY "Allow public read interactions"
 -- Allow authenticated create interactions
 CREATE POLICY "Allow authenticated create interactions" 
   ON contract_interactions FOR INSERT 
-  USING (auth.role() = 'authenticated');
+  WITH CHECK (auth.role() = 'authenticated');
 
 -- Create indexes for performance
 CREATE INDEX idx_contracts_is_active ON contracts(is_active);
