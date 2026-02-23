@@ -270,7 +270,7 @@ export async function prepareAndSignTransaction(
     body: JSON.stringify({
       user: message.user,
       token: message.token,
-      amount: message.Incomingamount,
+      amount: incoming.toString(), // Send as string representation of BigInt
       deadline: message.deadline,
       signature: rawSig
     })
