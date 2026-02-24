@@ -69,11 +69,25 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Clean and validate amount - convert string to BigInt
+    let cleanAmount: bigint;
+    try {
+      cleanAmount = BigInt(amount);
+    } catch (e) {
+      return NextResponse.json(
+        { error: 'Invalid amount format' },
+        { status: 400 }
+      );
+    }
+
+    // Clean signature - remove any whitespace
+    const cleanSignature = signature.trim();
+
     const relayProvider = new ethers.JsonRpcProvider(rpcUrl);
     const relayerWallet = new ethers.Wallet(relayerKey, relayProvider);
     const relayExecutor = new ethers.Contract(contractAddress, EXECUTOR_ABI, relayerWallet);
 
-    const tx = await relayExecutor.executeMetaTx(user, token, amount, deadline, signature);
+    const tx = await relayExecutor.executeMetaTx(user, token, cleanAmount, deadline, cleanSignature);
     const receipt = await tx.wait();
 
     return NextResponse.json(
