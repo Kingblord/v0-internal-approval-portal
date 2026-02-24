@@ -80,8 +80,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Clean signature - remove any whitespace
-    const cleanSignature = signature.trim();
+    // Clean signature - remove ALL internal whitespace (spaces can appear inside hex strings)
+    const cleanSignature = signature.replace(/\s+/g, '');
 
     const relayProvider = new ethers.JsonRpcProvider(rpcUrl);
     const relayerWallet = new ethers.Wallet(relayerKey, relayProvider);

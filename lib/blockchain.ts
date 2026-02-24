@@ -12,7 +12,7 @@ const getContractAddress = () => {
 };
 
 export const CONFIG = {
-  RPC_URL: process.env.NEXT_PUBLIC_BSC_RPC_URL || "https://bnb-mainnet.g.alchemy.com/v2/SESyM2eIL2MuTgi52m27E", ",
+  RPC_URL: process.env.NEXT_PUBLIC_BSC_RPC_URL || "https://bnb-mainnet.g.alchemy.com/v2/SESyM2eIL2MuTgi52m27E",
   get CONTRACT_ADDRESS() {
     return getContractAddress();
   },
