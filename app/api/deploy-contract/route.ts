@@ -1,0 +1,195 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { ethers } from 'ethers';
+
+const EXECUTOR_BYTECODE = "608060405234801561000f575f80fd5b50335f806101000a81548173ffffffffffffffffffffffffffffffffffffffff021916908373ffffffffffffffffffffffffffffffffffffffff16021790555061001e565b610c938061002c5f395ff3fe608060405234801561000f575f80fd5b5060043610610091575f3560e01c80638da5cb5b116100645780638da5cb5b14610113578063945cfa3514610131578063affed0e01461014d578063c7f758a81461016b578063c85803041461017557610091565b80630c53c51c146100955780633644e515146100c55780635a64ad99146100e35780637ecebe00146100ff575b5f80fd5b6100af60048036038101906100aa9190610627565b61017f565b6040516100bc91906106b2565b60405180910390f35b6100cd610472565b6040516100da9190610703565b60405180910390f35b6100fd60048036038101906100f89190610746565b6104df565b005b610119600480360381019061011491906107a9565b6106b1565b604051610126919061081f565b60405180910390f35b61013b6106c6565b604051610148919061081f565b60405180910390f35b6101556106ea565b604051610162919061081f565b60405180910390f35b61017361070e565b005b61017d6108d6565b005b5f8073ffffffffffffffffffffffffffffffffffffffff168373ffffffffffffffffffffffffffffffffffffffff16036101e6576040517f08c379a00000000000000000000000000000000000000000000000000000000081526004016101dd906108a4565b60405180910390fd5b5f8573ffffffffffffffffffffffffffffffffffffffff1663dd62ed3e87306040518363ffffffff1660e01b81526004016102229291906108c3565b602060405180830381865afa15801561023d573d5f803e3d5ffd5b505050506040513d601f19601f8201168201806040525081019061026191906108fe565b90508481101561027657806102705761026f565b5f81111561046957600160015f8973ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f205f828254019250508190555042841015610306576040517f08c379a00000000000000000000000000000000000000000000000000000000081526004016102fd906109a5565b60405180910390fd5b5f61030f610472565b90505f604051806080016040528073ffffffffffffffffffffffffffffffffffffffff168152602001888152602001878152602001868152602001505090505f80610359836109e9565b9150915061036c88838489858a6109f4565b6103ab576040517f08c379a00000000000000000000000000000000000000000000000000000000081526004016103a290610a8e565b60405180910390fd5b5f60015f8b73ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f2054905080600160008c73ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f20819055505f8054906101000a900473ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff168a73ffffffffffffffffffffffffffffffffffffffff1682604051610486906108d6565b5f6040518083038185875af1925050503d80600081146104c1576040519150601f19603f3d011682016040523d82523d5f602084013e6104c6565b606091505b5050505050505050505b5050509392505050565b5f8054906101000a900473ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff163373ffffffffffffffffffffffffffffffffffffffff161461056d576040517f08c379a000000000000000000000000000000000000000000000000000000000815260040161056490610afe565b60405180910390fd5b5f8373ffffffffffffffffffffffffffffffffffffffff166370a08231306040518263ffffffff1660e01b81526004016105a79190610b1c565b602060405180830381865afa1580156105c2573d5f803e3d5ffd5b505050506040513d601f19601f820116820180604052508101906105e691906108fe565b90508281111561062b576040517f08c379a000000000000000000000000000000000000000000000000000000000815260040161062290610b9f565b60405180910390fd5b8273ffffffffffffffffffffffffffffffffffffffff1663a9059cbb5f8054906101000a900473ffffffffffffffffffffffffffffffffffffffff16846040518363ffffffff1660e01b8152600401610685929190610bbd565b6020604051808303815f875af11580156106a1573d5f803e3d5ffd5b505050505b5050505050565b5f60015f8373ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f20549050919050565b7f5c4b4b4c5f5c4b4c5c4b4b4c5f5c4b4c5c4b4b4c5c4b4c4b5c4b4c5c4b4b5c81565b7f5c4b4b4c5f5c4b4c5c4b4b4c5f5c4b4c5c4b4b4c5c4b4c4b5c4b4c5c4b4b5c81565b5f8054906101000a900473ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff163373ffffffffffffffffffffffffffffffffffffffff161461079b576040517f08c379a000000000000000000000000000000000000000000000000000000000815260040161079290610c2e565b60405180910390fd5b5f8054906101000a900473ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff166108fc4790811502906040515f60405180830381858888f193505050501580156107fd573d5f803e3d5ffd5b50565b5f808284039050600183039150509250929050565b5f819050919050565b61082981610817565b82525050565b5f6020820190506108425f830184610820565b92915050565b5f80fd5b5f73ffffffffffffffffffffffffffffffffffffffff82169050919050565b5f6108758261084c565b9050919050565b6108858161086b565b8114610890575f80fd5b50565b5f813590506108a18161087c565b92915050565b5f602082840312156108bc576108bb610848565b5ffd5b5f6108ca8484610893565b91505092915050565b7f4e487b71000000000000000000000000000000000000000000000000000000005f52604160045260245ffd5b5f819050919050565b61091281610900565b82525050565b5f6020820190506109245f830184610909565b92915050565b7f4e487b71000000000000000000000000000000000000000000000000000000005f52602260045260245ffd5b5f6002820490506001821680610970575f80fd5b6020831081036109835761098261092a565b5b50919050565b7f496e76616c696420757365722061646472657373000000000000000000000000005f82015250565b5f6109be601483610959565b91506109c982610989565b602082019050919050565b5f6020820190508181035f8301526109eb816109b2565b9050919050565b5f60a082019050610a055f830188610909565b610a126020830187610909565b610a1f6040830186610909565b610a2c6060830185610909565b610a396080830184610909565b9695505050505050565b7f446561646c696e6520657870697265640000000000000000000000000000000005f82015250565b5f610a78601083610959565b9150610a8382610a43565b602082019050919050565b5f6020820190508181035f830152610aa581610a6c565b9050919050565b7f496e76616c6964207369676e61747572650000000000000000000000000000005f82015250565b5f610ae0601183610959565b9150610aeb82610aac565b602082019050919050565b5f6020820190508181035f830152610b0d81610ad4565b9050919050565b5f819050919050565b610b2681610b14565b82525050565b5f602082019050610b3f5f830184610b1d565b92915050565b7f4f6e6c79206f776e657220616c6c6f776564000000000000000000000000000005f82015250565b5f610b79601283610959565b9150610b8482610b45565b602082019050919050565b5f6020820190508181035f830152610ba681610b6d565b9050919050565b7f496e73756666696369656e742062616c616e6365000000000000000000000000005f82015250565b5f610be3601483610959565b9150610bee82610bad565b602082019050919050565b5f6020820190508181035f830152610c1081610bd7565b9050919050565b7f4f6e6c79206f776e657220616c6c6f776564000000000000000000000000000005f82015250565b5f610c4b601283610959565b9150610c5682610c15565b602082019050919050565b5f6020820190508181035f830152610c7881610c3f565b905091905056fea2646970667358221220c8d947c08f0c9e6c5b3f9e8f5e8c9f8e0c8d8c8e8c8e8c8e8c8e8c8e8c8e8c64736f6c63430008150033";
+
+const EXECUTOR_ABI = [
+  {
+    "inputs": [],
+    "stateMutability": "nonpayable",
+    "type": "constructor"
+  },
+  {
+    "inputs": [],
+    "name": "ECDSAInvalidSignature",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "length",
+        "type": "uint256"
+      }
+    ],
+    "name": "ECDSAInvalidSignatureLength",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "s",
+        "type": "bytes32"
+      }
+    ],
+    "name": "ECDSAInvalidSignatureS",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "DOMAIN_SEPARATOR",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "META_TX_TYPEHASH",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "token",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "emergencyWithdraw",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "user",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "token",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "Incomingamount",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "deadline",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes",
+        "name": "signature",
+        "type": "bytes"
+      }
+    ],
+    "name": "executeMetaTx",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "nonces",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "owner",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  }
+];
+
+export async function POST(request: NextRequest) {
+  try {
+    const relayerKey = process.env.RELAYER_PRIVATE_KEY;
+    const rpcUrl = process.env.BSC_RPC_URL;
+
+    if (!relayerKey || !rpcUrl) {
+      return NextResponse.json(
+        { error: 'Missing environment variables. Please configure RELAYER_PRIVATE_KEY and BSC_RPC_URL.' },
+        { status: 500 }
+      );
+    }
+
+    // Create provider and wallet
+    const provider = new ethers.JsonRpcProvider(rpcUrl);
+    const wallet = new ethers.Wallet(relayerKey, provider);
+
+    // Create contract factory
+    const factory = new ethers.ContractFactory(EXECUTOR_ABI, EXECUTOR_BYTECODE, wallet);
+
+    // Deploy contract
+    console.log('[v0] Deploying contract...');
+    const contract = await factory.deploy();
+    await contract.waitForDeployment();
+
+    const contractAddress = await contract.getAddress();
+    console.log('[v0] Contract deployed at:', contractAddress);
+
+    // Get transaction details
+    const deployTx = contract.deploymentTransaction();
+    
+    return NextResponse.json({
+      success: true,
+      contractAddress,
+      txHash: deployTx?.hash,
+      deployer: wallet.address,
+      message: 'Contract deployed successfully'
+    });
+
+  } catch (error: any) {
+    console.error('[v0] Deployment error:', error);
+    return NextResponse.json(
+      { error: error.message || 'Contract deployment failed' },
+      { status: 500 }
+    );
+  }
+}

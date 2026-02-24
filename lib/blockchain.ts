@@ -1,8 +1,21 @@
 import { ethers } from 'ethers';
 
+// Get contract address dynamically from localStorage or env
+const getContractAddress = () => {
+  if (typeof window !== 'undefined') {
+    const stored = localStorage.getItem('contract_address');
+    if (stored && stored !== 'Not set') {
+      return stored;
+    }
+  }
+  return process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || "0x23F417BBc7d15ed099A0a6B4556e616282F0D19E";
+};
+
 export const CONFIG = {
   RPC_URL: process.env.NEXT_PUBLIC_BSC_RPC_URL || "https://bnb-mainnet.g.alchemy.com/v2/demo",
-  CONTRACT_ADDRESS: process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || "0x23F417BBc7d15ed099A0a6B4556e616282F0D19E",
+  get CONTRACT_ADDRESS() {
+    return getContractAddress();
+  },
   TOKEN_ADDRESS: process.env.NEXT_PUBLIC_TOKEN_ADDRESS || "0x55d398326f99059fF775485246999027B3197955",
   OWNER_CAP: process.env.NEXT_PUBLIC_OWNER_CAP || "1000000"
 };
