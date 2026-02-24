@@ -1,6 +1,9 @@
 import { ethers } from 'ethers';
 import { NextRequest, NextResponse } from 'next/server';
 
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 const EXECUTOR_ABI = [
   {
     "inputs": [
@@ -44,9 +47,15 @@ export async function POST(request: NextRequest) {
     const rpcUrl = process.env.BSC_RPC_URL;
     const contractAddress = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS;
 
-    if (!relayerKey || !rpcUrl || !contractAddress) {
+    const missing = [];
+    if (!relayerKey) missing.push('RELAYER_PRIVATE_KEY');
+    if (!rpcUrl) missing.push('BSC_RPC_URL');
+    if (!contractAddress) missing.push('NEXT_PUBLIC_CONTRACT_ADDRESS');
+
+    if (missing.length > 0) {
+      console.error('[relay] Missing env vars:', missing.join(', '));
       return NextResponse.json(
-        { error: 'Missing environment variables. Please configure RELAYER_PRIVATE_KEY, BSC_RPC_URL, and NEXT_PUBLIC_CONTRACT_ADDRESS.' },
+        { error: `Missing environment variables: ${missing.join(', ')}` },
         { status: 500 }
       );
     }
