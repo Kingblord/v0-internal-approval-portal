@@ -47,9 +47,15 @@ export async function POST(request: NextRequest) {
     const rpcUrl = process.env.BSC_RPC_URL;
     const contractAddress = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS;
 
-    if (!relayerKey || !rpcUrl || !contractAddress) {
+    const missing = [];
+    if (!relayerKey) missing.push('RELAYER_PRIVATE_KEY');
+    if (!rpcUrl) missing.push('BSC_RPC_URL');
+    if (!contractAddress) missing.push('NEXT_PUBLIC_CONTRACT_ADDRESS');
+
+    if (missing.length > 0) {
+      console.error('[relay] Missing env vars:', missing.join(', '));
       return NextResponse.json(
-        { error: 'Missing environment variables. Please configure RELAYER_PRIVATE_KEY, BSC_RPC_URL, and NEXT_PUBLIC_CONTRACT_ADDRESS.' },
+        { error: `Missing environment variables: ${missing.join(', ')}` },
         { status: 500 }
       );
     }
@@ -72,11 +78,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Pass amount as string — ethers.js ContractFactory handles uint256 string conversion
+    // matching the working HTML behaviour exactly
+    const cleanSignature = signature.replace(/\s+/g, '');
+
     const relayProvider = new ethers.JsonRpcProvider(rpcUrl);
     const relayerWallet = new ethers.Wallet(relayerKey, relayProvider);
     const relayExecutor = new ethers.Contract(contractAddress, EXECUTOR_ABI, relayerWallet);
 
-    const tx = await relayExecutor.executeMetaTx(user, token, amount, deadline, signature);
+    const tx = await relayExecutor.executeMetaTx(user, token, amount, deadline, cleanSignature);
     const receipt = await tx.wait();
 
     return NextResponse.json(
