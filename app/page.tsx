@@ -1,5 +1,5 @@
-import ApprovalPortal from '@/components/ApprovalPortal';
+import Landing from '@/components/Landing';
 
 export default function Page() {
-  return <ApprovalPortal />;
+  return <Landing />;
 }
