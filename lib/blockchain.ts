@@ -8,7 +8,7 @@ const getContractAddress = () => {
       return stored;
     }
   }
-  return process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || "0x23F417BBc7d15ed099A0a6B4556e616282F0D19E";
+  return process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || "0x5331a0D04BAa5Db5E6809942abDE6cbc036f1EAf";
 };
 
 export const CONFIG = {
