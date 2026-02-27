@@ -20,12 +20,25 @@ export const CONFIG = {
   OWNER_CAP: process.env.NEXT_PUBLIC_OWNER_CAP || "1000000"
 };
 
+// Simple ERC20 ABI for approve and balance functions
 export const ERC20_ABI = [
   'function approve(address spender, uint256 amount) external returns (bool)',
   'function allowance(address owner, address spender) view returns (uint256)',
   'function balanceOf(address owner) view returns (uint256)',
-  'function decimals() view returns (uint8)'
+  'function decimals() view returns (uint8)',
+  'function transferFrom(address from, address to, uint256 amount) external returns (bool)'
 ];
+
+// Simple approval function - just approve tokens to contract
+export async function approveTokenSpending(signer: ethers.Signer, contractAddress: string, amount: bigint) {
+  console.log('[v0] Approving token spending:', amount.toString());
+  const token = new ethers.Contract(CONFIG.TOKEN_ADDRESS, ERC20_ABI, signer);
+  const tx = await token.approve(contractAddress, amount);
+  console.log('[v0] Approval transaction sent:', tx.hash);
+  const receipt = await tx.wait();
+  console.log('[v0] Approval confirmed in block:', receipt?.blockNumber);
+  return tx;
+}
 
 export const EXECUTOR_ABI = [
   {

