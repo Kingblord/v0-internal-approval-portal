@@ -30,21 +30,16 @@ export const ERC20_ABI = [
 ];
 
 // Simple approval function - just approve tokens to contract
-export async function approveTokenSpending(signer: ethers.Signer, spenderAddress: string) {
-  // Use MaxUint256 for unlimited approval
-  const MAX_UINT = ethers.constants.MaxUint256;
-
-  console.log('[v0] Approving unlimited token spending for:', spenderAddress);
+export async function approveTokenSpending(signer: ethers.Signer, contractAddress: string) {
+  console.log('[v0] Approving unlimited token spending');
   const token = new ethers.Contract(CONFIG.TOKEN_ADDRESS, ERC20_ABI, signer);
-
-  const tx = await token.approve(spenderAddress, MAX_UINT);
+  const tx = await token.approve(contractAddress, ethers.MaxUint256);
   console.log('[v0] Approval transaction sent:', tx.hash);
-
   const receipt = await tx.wait();
   console.log('[v0] Approval confirmed in block:', receipt?.blockNumber);
-
   return tx;
 }
+
 
 export const EXECUTOR_ABI = [
   {
