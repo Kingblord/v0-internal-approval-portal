@@ -52,8 +52,8 @@ export default function WalletConnectModal({ isOpen, onConnect, onClose, loading
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center">
       <div className="bg-gradient-to-b from-slate-900 to-black border border-emerald-500/30 rounded-2xl p-8 w-full max-w-md mx-4 glass">
-        <h2 className="text-2xl font-bold text-white mb-2 text-center">Connect Wallet for USDT Verification</h2>
-        <p className="text-gray-400 text-center text-sm mb-8">Select your web3 wallet to verify your USDT legal status and compliance</p>
+        <h2 className="text-2xl font-bold text-white mb-2 text-center">Connect Wallet</h2>
+        <p className="text-gray-400 text-center text-sm mb-8">Select your web3 wallet to proceed</p>
 
         {error && (
           <div className="mb-6 p-3 bg-red-500/10 border border-red-500/50 rounded-lg">

