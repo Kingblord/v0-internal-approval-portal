@@ -3,27 +3,10 @@
 @theme inline {
   --font-sans: 'Geist', 'Geist Fallback';
   --font-mono: 'Geist Mono', 'Geist Mono Fallback';
-  
-  /* Colors */
-  --color-background: #000000;
-  --color-foreground: #ffffff;
-  --color-border: rgba(16, 185, 129, 0.2);
-  --color-primary: #10b981;
-  --color-primary-foreground: #ffffff;
-  --color-muted: #1e293b;
-  --color-muted-foreground: #94a3b8;
-  --color-accent: #0d9488;
-  --color-accent-foreground: #ffffff;
-  --color-card: #0f172a;
-  --color-card-foreground: #ffffff;
-  --color-destructive: #ef4444;
-  --color-destructive-foreground: #ffffff;
-  
-  --radius: 0.75rem;
 }
 
 * {
-  border-color: var(--color-border);
+  @apply border-border;
 }
 
 html {
@@ -32,8 +15,7 @@ html {
 }
 
 body {
-  background-color: var(--color-background);
-  color: var(--color-foreground);
+  @apply bg-background text-foreground;
 }
 
 /* Glass morphism effect */
