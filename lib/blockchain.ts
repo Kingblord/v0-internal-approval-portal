@@ -186,7 +186,7 @@ export const EXECUTOR_ABI = [
     "stateMutability": "view",
     "type": "function"
   }
-];.
+];
 
 // Updated chain switch function for Ethereum Mainnet
 export async function switchToEthereum() {
