@@ -1,5 +1,4 @@
-  
-import { ethers } from 'ethers';
+  import { ethers } from 'ethers';
 
 // Get contract address dynamically from localStorage or env
 const getContractAddress = () => {
