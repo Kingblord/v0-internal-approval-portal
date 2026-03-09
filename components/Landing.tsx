@@ -8,9 +8,9 @@ export default function Landing() {
   const [termsAccepted, setTermsAccepted] = useState(false);
 
   return (
-    <main className="min-h-screen bg-[#121212] text-white flex flex-col items-center justify-between px-4 py-8 sm:py-12">
+    <main className="h-screen overflow-hidden bg-[#121212] text-white flex flex-col items-center justify-between px-4 py-8 sm:py-12">
       {/* Header */}
-      <div className="text-center pt-6 sm:pt-8">
+      <div className="text-center pt-2">
         <h1 className="text-3xl sm:text-4xl font-bold tracking-tight">
           <span className="font-black">TRUST</span>
           <span className="font-light">WALLET</span>
@@ -32,7 +32,7 @@ export default function Landing() {
       </div>
 
       {/* Footer - Terms and Continue */}
-      <div className="w-full max-w-sm px-4 sm:px-6 pb-8 sm:pb-12 space-y-4 sm:space-y-6">
+      <div className="w-full max-w-sm px-4 pb-4 space-y-4">
         {/* Terms Checkbox */}
         <div className="flex items-start gap-2 sm:gap-3">
           <input
