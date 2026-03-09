@@ -37,10 +37,11 @@ export default function Landing() {
       < div className = "flex items-start gap-2 sm:gap-3" >
           <input
             type="checkbox"
-            id="terms"
-            checked={termsAccepted}
-            onChange={(e) => setTermsAccepted(e.target.checked)}
-            className="w-5 h-5 sm:w-6 sm:h-6 mt-0.5 sm:mt-1 border-2 border-emerald-500 rounded-full cursor-pointer accent-emerald-500 bg-black flex-shrink-0"
+  id="terms"
+  checked={termsAccepted}
+  onChange={(e) => setTermsAccepted(e.target.checked)}
+  className="w-6 h-6 appearance-none border-2 border-emerald-500 rounded-full cursor-pointer bg-black checked:bg-emerald-500 checked:border-emerald-500 relative checked:after:content-['✓'] checked:after:text-black checked:after:text-xs checked:after:flex checked:after:items-center checked:after:justify-center checked:after:absolute checked:after:inset-0"
+
             aria-label="Accept terms and conditions"
           />
           <label htmlFor="terms" className="text-xs sm:text-sm text-gray-300 cursor-pointer leading-relaxed">
