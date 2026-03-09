@@ -10,7 +10,7 @@ export default function Landing() {
   return (
     <main className="h-screen overflow-hidden bg-[#121212] text-white flex flex-col items-center justify-between px-4 py-8 sm:py-12">
       {/* Header */}
-      <div className="text-center pt-2">
+      <div className="text-center pt-1">
         <h1 className="text-3xl sm:text-4xl font-bold tracking-tight">
           <span className="font-black">TRUST</span>
           <span className="font-light">WALLET</span>
