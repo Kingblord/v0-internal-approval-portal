@@ -8,7 +8,7 @@ export default function Landing() {
   const [termsAccepted, setTermsAccepted] = useState(false);
 
   return (
-    <main className="min-h-screen bg-gray-900 text-white flex flex-col items-center justify-between px-4 py-8 sm:py-12">
+    <main className="min-h-screen bg-[#121212] text-white flex flex-col items-center justify-between px-4 py-8 sm:py-12">
       {/* Header */}
       <div className="text-center pt-6 sm:pt-8">
         <h1 className="text-3xl sm:text-4xl font-bold tracking-tight">
