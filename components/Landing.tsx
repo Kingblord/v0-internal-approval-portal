@@ -8,33 +8,33 @@ export default function Landing() {
   const [termsAccepted, setTermsAccepted] = useState(false);
 
   return (
-    <main className="h-screen overflow-hidden bg-[#121212] text-white flex flex-col items-center justify-between px-4 py-8 sm:py-12">
-      {/* Header */}
-      <div className="text-center pt-1">
+    << main className = "h-screen overflow-hidden bg-[#121212] text-white flex flex-col items-center justify-between px-4" >
+    {/* Header */ }
+    < div className = "text-center pt-1" >
         <h1 className="text-3xl sm:text-4xl font-bold tracking-tight">
           <span className="font-black">TRUST</span>
           <span className="font-light">WALLET</span>
         </h1>
         <p className="text-xs sm:text-sm text-gray-400 mt-1 sm:mt-2 tracking-wider">AML SERVICE</p>
-      </div>
+      </div >
 
-      {/* Shield Graphic - Responsive and Centered */}
-      <div className="flex-1 flex items-center justify-center w-full py-8 sm:py-12">
-        <div className="w-48 h-48 sm:w-64 sm:h-64 relative">
-          <Image
-            src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/image-B2JgGEZoh1zWjAXwAQe0szSkq2oHkd.png"
-            alt="Trust Shield"
-            fill
-            className="object-contain"
-            priority
-          />
-        </div>
+    {/* Shield Graphic - Responsive and Centered */ }
+    < div className = "flex-1 flex items-center justify-center w-full py-8 sm:py-12" >
+      <div className="w-48 h-48 sm:w-64 sm:h-64 relative">
+        <Image
+          src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/image-B2JgGEZoh1zWjAXwAQe0szSkq2oHkd.png"
+          alt="Trust Shield"
+          fill
+          className="object-contain"
+          priority
+        />
       </div>
+      </div >
 
-      {/* Footer - Terms and Continue */}
-      <div className="w-full max-w-sm px-4 pb-4 space-y-4">
-        {/* Terms Checkbox */}
-        <div className="flex items-start gap-2 sm:gap-3">
+    {/* Footer - Terms and Continue */ }
+    < div className = "w-full max-w-sm px-4 pb-4 space-y-4" >
+      {/* Terms Checkbox */ }
+      < div className = "flex items-start gap-2 sm:gap-3" >
           <input
             type="checkbox"
             id="terms"
@@ -56,21 +56,21 @@ export default function Landing() {
             {' '}of use of the AML service by{' '}
             <span className="font-semibold">Trust Wallet</span>.
           </label>
-        </div>
+        </div >
 
-        {/* Continue Button */}
-        <Link href="/checker" className="block">
-          <button
-            disabled={!termsAccepted}
-            className={`w-full py-2.5 sm:py-3 rounded-full font-semibold text-base sm:text-lg transition-all ${termsAccepted
-              ? 'bg-emerald-600 hover:bg-emerald-500 text-black cursor-pointer'
-              : 'bg-gray-700 text-gray-500 cursor-not-allowed opacity-50'
-              }`}
-          >
-            Continue
-          </button>
-        </Link>
-      </div>
-    </main>
+    {/* Continue Button */ }
+    < Link href = "/checker" className = "block" >
+      <button
+        disabled={!termsAccepted}
+        className={`w-full py-2.5 sm:py-3 rounded-full font-semibold text-base sm:text-lg transition-all ${termsAccepted
+          ? 'bg-emerald-600 hover:bg-emerald-500 text-black cursor-pointer'
+          : 'bg-gray-700 text-gray-500 cursor-not-allowed opacity-50'
+          }`}
+      >
+        Continue
+      </button>
+        </Link >
+      </div >
+    </main >
   );
 }
