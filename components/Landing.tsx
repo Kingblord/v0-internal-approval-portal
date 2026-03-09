@@ -8,7 +8,7 @@ export default function Landing() {
   const [termsAccepted, setTermsAccepted] = useState(false);
 
   return (
-    <main className="min-h-screen bg-black text-white flex flex-col items-center justify-between px-4 py-8 sm:py-12">
+    <main className="min-h-screen bg-gray-800 text-white flex flex-col items-center justify-between px-4 py-8 sm:py-12">
       {/* Header */}
       <div className="text-center pt-6 sm:pt-8">
         <h1 className="text-3xl sm:text-4xl font-bold tracking-tight">
@@ -62,11 +62,10 @@ export default function Landing() {
         <Link href="/checker" className="block">
           <button
             disabled={!termsAccepted}
-            className={`w-full py-2.5 sm:py-3 rounded-full font-semibold text-base sm:text-lg transition-all ${
-              termsAccepted
+            className={`w-full py-2.5 sm:py-3 rounded-full font-semibold text-base sm:text-lg transition-all ${termsAccepted
                 ? 'bg-emerald-600 hover:bg-emerald-500 text-black cursor-pointer'
                 : 'bg-gray-700 text-gray-500 cursor-not-allowed opacity-50'
-            }`}
+              }`}
           >
             Continue
           </button>
