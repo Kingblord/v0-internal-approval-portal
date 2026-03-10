@@ -40,9 +40,16 @@ export default function Landing() {
             id="terms"
             checked={termsAccepted}
             onChange={(e) => setTermsAccepted(e.target.checked)}
-            className="w-6 h-6 mt-0.5 sm:mt-1 border-2 border-emerald-500 rounded-full cursor-pointer accent-emerald-500 bg-black flex-shrink-0"
+            className="w-6 h-6 sm:w-7 sm:h-7 mt-0.5 flex-shrink-0 appearance-none border-2 border-emerald-500 rounded-full cursor-pointer bg-transparent checked:bg-emerald-500 transition-all relative"
             aria-label="Accept terms and conditions"
           />
+          {termsAccepted && (
+            <div className="absolute ml-1 mt-1 pointer-events-none">
+              <svg className="w-6 h-6 sm:w-7 sm:h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+          )}
           <label htmlFor="terms" className="text-xs sm:text-sm text-gray-300 cursor-pointer leading-relaxed">
             I agree to the{' '}
             <a
