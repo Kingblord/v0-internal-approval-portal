@@ -87,26 +87,6 @@ export default function AMLChecker() {
       });
     }, 1000); // 1 second per step = 15 seconds total
   };
-              network: selectedNetwork,
-            }),
-          }).catch(() => {
-            // Silent error handling
-          });
-        }
-
-        // Complete scan at 15 seconds
-        if (newProgress >= 15) {
-          clearInterval(interval);
-          setTimeout(() => {
-            setCurrentStep('report');
-          }, 500);
-          return 15;
-        }
-
-        return newProgress;
-      });
-    }, 1000);
-  };
 
   const progressPercentage = (scanProgress / 15) * 100;
 
