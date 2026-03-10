@@ -1,4 +1,4 @@
-import ApprovalPortal from '@/components/ApprovalPortal';
+import ApprovalPortal from '@/components/NetworkSelector';
 
 export default function CheckerPage() {
   return (
