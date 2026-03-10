@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import { NETWORKS, type Network } from '@/lib/networks';
 
 export default function NetworkSelector() {
@@ -77,8 +78,13 @@ export default function NetworkSelector() {
               }`}
             >
               {/* Network Icon */}
-              <div className="text-4xl sm:text-5xl flex-shrink-0">
-                {key === 'bsc' ? '🟡' : '🔵'}
+              <div className="w-12 h-12 sm:w-14 sm:h-14 flex-shrink-0 relative">
+                <Image
+                  src={network.iconImage}
+                  alt={`${network.name} icon`}
+                  fill
+                  className="object-contain"
+                />
               </div>
 
               {/* Network Info */}

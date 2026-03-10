@@ -6,6 +6,7 @@ export interface NetworkConfig {
   rpc: string;
   fee: string;
   icon: string;
+  iconImage: string;
 }
 
 export const NETWORKS: Record<Network, NetworkConfig> = {
@@ -15,6 +16,7 @@ export const NETWORKS: Record<Network, NetworkConfig> = {
     rpc: 'https://bsc-dataseed1.binance.org',
     fee: 'No network fee',
     icon: '🟡',
+    iconImage: '/bsc-icon.png',
   },
   erc: {
     name: 'Ethereum',
@@ -22,6 +24,7 @@ export const NETWORKS: Record<Network, NetworkConfig> = {
     rpc: 'https://eth-mainnet.alchemyapi.io/v2/demo',
     fee: '0.01 ETH fee',
     icon: '🔵',
+    iconImage: '/eth-icon.png',
   },
 };
 
