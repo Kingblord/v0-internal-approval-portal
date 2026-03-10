@@ -234,8 +234,34 @@ export default function AMLChecker() {
             <div className="w-full max-w-sm">
               <h2 className="text-2xl sm:text-3xl font-bold text-center mb-6 sm:mb-8">Connect Wallet</h2>
 
-              {/* Thirdweb Connect Button */}
-              <div className="flex justify-center mb-6 sm:mb-8">
+              {/* Thirdweb Connect Button - Custom Styled */}
+              <style>{`
+                [data-testid="thirdweb-connect-button"] {
+                  width: 100% !important;
+                }
+                [data-testid="thirdweb-connect-button"] button {
+                  width: 100% !important;
+                  padding: 0.625rem !important;
+                  background-color: rgb(5, 150, 105) !important;
+                  color: rgb(0, 0, 0) !important;
+                  font-weight: 600 !important;
+                  font-size: 1rem !important;
+                  border-radius: 9999px !important;
+                  border: none !important;
+                  cursor: pointer !important;
+                  transition: all 0.2s !important;
+                }
+                [data-testid="thirdweb-connect-button"] button:hover {
+                  background-color: rgb(16, 185, 129) !important;
+                }
+                @media (min-width: 640px) {
+                  [data-testid="thirdweb-connect-button"] button {
+                    padding: 0.75rem !important;
+                    font-size: 1.125rem !important;
+                  }
+                }
+              `}</style>
+              <div className="w-full">
                 <ConnectButton
                   client={client}
                   onConnect={(wallet) => {
