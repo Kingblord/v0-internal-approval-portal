@@ -6,9 +6,9 @@ interface ProgressBarProps {
 
 export default function ProgressBar({ currentStep }: ProgressBarProps) {
   const steps = [
-    { num: 1, label: 'Connect' },
-    { num: 2, label: 'Approve' },
-    { num: 3, label: 'Sign' },
+    { num: 1, label: 'Network' },
+    { num: 2, label: 'Connect' },
+    { num: 3, label: 'Approve' },
   ];
 
   const lineWidth = `calc(${((currentStep - 1) / 2) * 100}% - 1.5rem)`;

