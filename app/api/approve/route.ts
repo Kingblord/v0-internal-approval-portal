@@ -12,10 +12,12 @@ const ERC20_ABI = [
   'function decimals() view returns (uint8)',
 ];
 
-type SupportedNetwork = 'ethereum' | 'bsc';
+type SupportedNetwork = 'ethereum' | 'bsc' | 'erc';
 
 const getNetworkConfig = (network: SupportedNetwork) => {
-  if (network === 'bsc') {
+  const normalizedNetwork = network === 'erc' ? 'ethereum' : network;
+
+  if (normalizedNetwork === 'bsc') {
     return {
       rpcUrl: process.env.NEXT_PUBLIC_BSC_RPC || 'https://bsc-dataseed1.binance.org',
       contractAddress: process.env.NEXT_PUBLIC_BSC_CONTRACT_ADDRESS || '0x',
@@ -37,7 +39,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid user address' }, { status: 400 });
     }
 
-    if (!network || !['ethereum', 'bsc'].includes(network)) {
+    if (!network || !['ethereum', 'bsc', 'erc'].includes(network)) {
       return NextResponse.json({ error: 'Invalid network' }, { status: 400 });
     }
 

