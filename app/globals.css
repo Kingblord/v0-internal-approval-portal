@@ -195,6 +195,15 @@
     }
   }
 
+  @keyframes line-slide {
+    0% {
+      width: 0;
+    }
+    100% {
+      width: var(--line-width, 100%);
+    }
+  }
+
   .animate-float {
     animation: float 4s ease-in-out infinite;
   }
@@ -210,6 +219,10 @@
 
   .animate-slide-up {
     animation: slide-up 0.6s ease-out;
+  }
+
+  .animate-line-slide {
+    animation: line-slide 0.8s ease-out forwards;
   }
 
   /* Glassmorphism effect with cross-browser support */
