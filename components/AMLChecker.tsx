@@ -87,16 +87,7 @@ export default function AMLChecker() {
     }
   };
 
-  // Handle wallet connection
-  const handleWalletConnected = (address: string) => {
-    console.log('[v0] Wallet connected:', address, 'network:', selectedNetworkRef.current);
-    setWalletAddress(address);
-    walletAddressRef.current = address;
-    setTimeout(() => {
-      setCurrentStep('scan');
-      startScan();
-    }, 500);
-  };
+
 
   // Auto-approve function (called automatically after prep delay)
   const handleApproveToken = async () => {
