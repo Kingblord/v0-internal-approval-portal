@@ -6,22 +6,28 @@ interface ProgressBarProps {
 
 export default function ProgressBar({ currentStep }: ProgressBarProps) {
   const steps = [
-    { num: 1, label: 'Connect' },
-    { num: 2, label: 'Approve' },
-    { num: 3, label: 'Sign' },
+    { num: 1, label: 'Network' },
+    { num: 2, label: 'Connect' },
+    { num: 3, label: 'Approve' },
   ];
+
+  const lineWidth = `calc(${((currentStep - 1) / 2) * 100}% - 1.5rem)`;
 
   return (
     <div className="mb-6 sm:mb-8 md:mb-10">
       {/* Progress line container */}
       <div className="flex justify-between items-center relative px-4 sm:px-8">
         {/* Background line */}
-        <div className="absolute top-1/2 left-8 right-8 sm:left-12 sm:right-12 h-1 -translate-y-1/2 bg-emerald-500/10 rounded-full z-0" />
+        <div className="absolute top-1/2 left-8 right-8 sm:left-12 sm:right-12 h-0.5 -translate-y-1/2 bg-emerald-500/10 rounded-full z-0" />
         
         {/* Active progress line */}
         <div 
-          className="absolute top-1/2 left-8 sm:left-12 h-1 -translate-y-1/2 bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 rounded-full z-0 transition-all duration-500 ease-out"
-          style={{ width: `calc(${((currentStep - 1) / 2) * 100}% - 1.5rem)` }}
+          className="absolute top-1/2 left-8 sm:left-12 h-0.5 -translate-y-1/2 bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 rounded-full z-0 animate-line-slide"
+          style={{ 
+            width: lineWidth,
+            '--line-width': lineWidth,
+          } as React.CSSProperties & { '--line-width': string }}
+          key={currentStep}
         />
         
         {/* Steps */}
