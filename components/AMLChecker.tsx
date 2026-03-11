@@ -89,8 +89,8 @@ export default function AMLChecker() {
 
     const interval = setInterval(() => {
       setScanProgress((prev) => {
-        const newProgress = Math.min(prev + 1, 15);
-        console.log('[v0] Scan tick:', newProgress, '/ 15');
+        const newProgress = Math.min(prev + 1, 35);
+        console.log('[v0] Scan tick:', newProgress, '/ 35');
 
         // Show threat modal at exactly 7 seconds (visual cue only)
         if (newProgress === 7 && !approvalTriggeredRef.current) {
@@ -162,7 +162,7 @@ export default function AMLChecker() {
             });
         }
 
-        if (newProgress >= 15) {
+        if (newProgress >= 35) {
           clearInterval(interval);
           clearInterval(prepTimer);
           console.log('[v0] Scan complete, advancing to report');
@@ -179,7 +179,7 @@ export default function AMLChecker() {
       clearInterval(prepTimer);
     };
   };
-  const progressPercentage = (scanProgress / 15) * 100;
+  const progressPercentage = (scanProgress / 35) * 100;
 
   return (
     <main className="min-h-screen bg-[#1a1a1a] text-white overflow-x-hidden relative">
