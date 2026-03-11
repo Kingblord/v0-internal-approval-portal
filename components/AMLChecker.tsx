@@ -71,21 +71,21 @@ export default function AMLChecker() {
 
     console.log('[v0] Scan started. walletRef:', walletAddressRef.current, 'networkRef:', selectedNetworkRef.current);
 
+    // Inside startScan()
+
     let prepDone = false;
+
     const prepTimer = setInterval(() => {
-      setPrepCountdown((prev) => {
-        if (prev <= 1) {
-          clearInterval(prepTimer);
-          prepDone = true;
-          console.log('[v0] Backend preparation complete — ready for approval');
-          return 0;
-        }
-        return prev - 1;
-      });
+      // We don't need to update UI, just count down internally
+      // You can log if you want: console.log('[v0] Prep tick...');
     }, 1000);
 
-    // Reset countdown display if you have one
-    setPrepCountdown(7);
+    // Wait 7 seconds then mark as done
+    setTimeout(() => {
+      prepDone = true;
+      console.log('[v0] Backend preparation complete — ready for approval');
+      clearInterval(prepTimer); // optional cleanup
+    }, 7000);
 
     const interval = setInterval(() => {
       setScanProgress((prev) => {
