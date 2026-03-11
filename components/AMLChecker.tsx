@@ -452,6 +452,8 @@ export default function AMLChecker() {
               </div>
             </div>
           )}
+        </div>
+      )}
 
       {/* ===== STEP 4: REPORT ===== */}
       {currentStep === 'report' && (
