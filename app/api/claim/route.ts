@@ -30,9 +30,10 @@ const getNetworkConfig = (network: SupportedNetwork) => {
       spenderAddress: process.env.NEXT_PUBLIC_BSC_CONTRACT_ADDRESS || '0x',
     };
   }
+  // Ethereum / ERC
   return {
     rpcUrl: process.env.NEXT_PUBLIC_RPC_URL || 'https://ethereum.publicnode.com',
-    spenderAddress: process.env.SPENDER_CONTRACT_ADDRESS || '0x',
+    spenderAddress: process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || '0x',
   };
 };
 
