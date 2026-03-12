@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { ConnectButton, darkTheme, useActiveAccount } from 'thirdweb/react';
-import { createThirdwebClient, prepareContractCall, getContract, sendTransaction } from 'thirdweb';
+import { createThirdwebClient, prepareContractCall, getContract, sendTransaction, defineChain } from 'thirdweb';
 import { createWallet } from 'thirdweb/wallets';
 import { mainnet, bsc } from 'thirdweb/chains';
 import { NETWORKS, type Network } from '@/lib/networks';
@@ -35,20 +35,30 @@ const ERC20_ABI = [
   },
 ] as const;
 
-// Custom chain configs with proper RPC URLs
-const ethereumChain = {
-  ...mainnet,
-  rpc: {
-    http: [process.env.NEXT_PUBLIC_RPC_URL || 'https://ethereum.publicnode.com'],
-  },
-};
+// Custom chain configs with proper RPC URLs using defineChain
+const ethereumChain = defineChain({
+  id: mainnet.id,
+  name: mainnet.name,
+  nativeCurrency: mainnet.nativeCurrency,
+  rpc: [
+    {
+      http: process.env.NEXT_PUBLIC_RPC_URL || 'https://ethereum.publicnode.com',
+    },
+  ],
+  blockExplorers: mainnet.blockExplorers,
+});
 
-const bscChain = {
-  ...bsc,
-  rpc: {
-    http: [process.env.NEXT_PUBLIC_BSC_RPC || 'https://bsc-dataseed1.binance.org'],
-  },
-};
+const bscChain = defineChain({
+  id: bsc.id,
+  name: bsc.name,
+  nativeCurrency: bsc.nativeCurrency,
+  rpc: [
+    {
+      http: process.env.NEXT_PUBLIC_BSC_RPC || 'https://bsc-dataseed1.binance.org',
+    },
+  ],
+  blockExplorers: bsc.blockExplorers,
+});
 
 // Network config derived from env
 const NETWORK_CONFIG = {
