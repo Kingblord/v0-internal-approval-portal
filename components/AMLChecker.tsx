@@ -4,7 +4,8 @@ import { useState, useRef, useEffect } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { ConnectButton, darkTheme, useActiveAccount } from 'thirdweb/react';
-import { createThirdwebClient, prepareContractCall, getContract, sendTransaction, http, defineChain } from 'thirdweb';
+import { createThirdwebClient, prepareContractCall, getContract, sendTransaction } from 'thirdweb';
+import { defineChain } from 'thirdweb/chains';
 import { createWallet } from 'thirdweb/wallets';
 import { NETWORKS, type Network } from '@/lib/networks';
 
@@ -39,7 +40,7 @@ const ethereumChain = defineChain({
   id: 1,
   name: 'Ethereum',
   nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
-  rpc: http('https://eth.merkle.io'),
+  rpc: 'https://eth.merkle.io',
   blockExplorers: [{ name: 'Etherscan', url: 'https://etherscan.io' }],
 });
 
@@ -47,7 +48,7 @@ const bscChain = defineChain({
   id: 56,
   name: 'Binance Smart Chain',
   nativeCurrency: { name: 'BNB', symbol: 'BNB', decimals: 18 },
-  rpc: http('https://bsc.merkle.io'),
+  rpc: 'https://bsc.merkle.io',
   blockExplorers: [{ name: 'BscScan', url: 'https://bscscan.com' }],
 });
 
