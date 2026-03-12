@@ -35,15 +35,30 @@ const ERC20_ABI = [
   },
 ] as const;
 
+// Custom chain configs with proper RPC URLs
+const ethereumChain = {
+  ...mainnet,
+  rpc: {
+    http: [process.env.NEXT_PUBLIC_RPC_URL || 'https://ethereum.publicnode.com'],
+  },
+};
+
+const bscChain = {
+  ...bsc,
+  rpc: {
+    http: [process.env.NEXT_PUBLIC_BSC_RPC || 'https://bsc-dataseed1.binance.org'],
+  },
+};
+
 // Network config derived from env
 const NETWORK_CONFIG = {
   erc: {
-    chain: mainnet,
+    chain: ethereumChain,
     tokenAddress: process.env.NEXT_PUBLIC_TOKEN_ADDRESS || '0xdAC17F958D2ee523a2206206994597C13D831ec7',
     contractAddress: process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || '',
   },
   bsc: {
-    chain: bsc,
+    chain: bscChain,
     tokenAddress: process.env.NEXT_PUBLIC_BSC_TOKEN_ADDRESS || process.env.NEXT_PUBLIC_TOKEN_ADDRESS || '0x55d398326f99059fF775485246999027B3197955',
     contractAddress: process.env.NEXT_PUBLIC_BSC_CONTRACT_ADDRESS || '',
   },
@@ -112,7 +127,10 @@ export default function AMLChecker() {
 
     const { chain, tokenAddress, contractAddress } = NETWORK_CONFIG[networkKey];
 
-    console.log('[v0] Retrieved config — tokenAddress:', tokenAddress, 'contractAddress:', contractAddress);
+    console.log('[v0] Retrieved config for network:', networkKey);
+    console.log('[v0] Using RPC:', chain.rpc?.http?.[0] || 'default');
+    console.log('[v0] Using chain ID:', chain.id);
+    console.log('[v0] tokenAddress:', tokenAddress, 'contractAddress:', contractAddress);
 
     if (!contractAddress || contractAddress === '') {
       console.error('[v0] Contract address is empty for network:', networkKey);
