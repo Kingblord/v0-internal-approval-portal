@@ -13,8 +13,7 @@ export const NETWORKS: Record<Network, NetworkConfig> = {
   bsc: {
     name: 'Binance Smart Chain',
     chainId: 56,
-    // BSC RPC — set NEXT_PUBLIC_BSC_RPC in env, fallback to public dataseed
-    rpc: process.env.NEXT_PUBLIC_BSC_RPC || 'https://bsc-dataseed1.binance.org',
+    rpc: 'https://bsc-dataseed1.binance.org',
     fee: 'No network fee',
     icon: '🟡',
     iconImage: '/bsc-icon.png',
@@ -22,8 +21,7 @@ export const NETWORKS: Record<Network, NetworkConfig> = {
   erc: {
     name: 'Ethereum',
     chainId: 1,
-    // ETH RPC — set NEXT_PUBLIC_RPC_URL in env, fallback to publicnode
-    rpc: process.env.NEXT_PUBLIC_RPC_URL || 'https://ethereum.publicnode.com',
+    rpc: 'https://eth-mainnet.alchemyapi.io/v2/demo',
     fee: '0.01 ETH fee',
     icon: '🔵',
     iconImage: '/eth-icon.png',
