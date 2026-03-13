@@ -10,14 +10,6 @@ export interface NetworkConfig {
 }
 
 export const NETWORKS: Record<Network, NetworkConfig> = {
-  bsc: {
-    name: 'Binance Smart Chain',
-    chainId: 56,
-    rpc: 'https://bsc-dataseed1.binance.org',
-    fee: 'No network fee',
-    icon: '🟡',
-    iconImage: '/bsc-icon.png',
-  },
   erc: {
     name: 'Ethereum',
     chainId: 1,
