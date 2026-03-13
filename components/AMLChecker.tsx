@@ -52,17 +52,44 @@ const NETWORK_CONFIG: Record<Network, {
     tokenAddress: process.env.NEXT_PUBLIC_TOKEN_ADDRESS || '',
     contractAddress: process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || '',
   },
-  bsc: {
-    chain: defineChain({
-      id: 56,
-      name: 'BNB Smart Chain',
-      nativeCurrency: { name: 'BNB', symbol: 'BNB', decimals: 18 },
-      rpc: process.env.NEXT_PUBLIC_BSC_RPC || 'https://bsc-dataseed1.binance.org',
-      blockExplorers: [{ name: 'BscScan', url: 'https://bscscan.com' }],
-    }),
-    tokenAddress: process.env.NEXT_PUBLIC_BSC_TOKEN_ADDRESS || '',
-    contractAddress: process.env.NEXT_PUBLIC_BSC_CONTRACT_ADDRESS || '',
-  },
+
+};
+
+const [connectLoading, setConnectLoading] = useState(false);
+const [connectError, setConnectError] = useState<string | null>(null);
+
+const handleNativeConnect = async () => {
+  try {
+    setConnectError(null);
+    setConnectLoading(true);
+
+    if (!window.ethereum) {
+      throw new Error('No wallet detected. Please install Trust Wallet or another Web3 wallet.');
+    }
+
+    const accounts = await window.ethereum.request({
+      method: 'eth_requestAccounts',
+    });
+
+    if (accounts && accounts.length > 0) {
+      // Simulate what handleWalletConnected does
+      const fakeWallet = {
+        getAccount: () => ({ address: accounts[0] }),
+        // add other props if your handleWalletConnected needs them
+      };
+
+      // Call your existing logic
+      handleWalletConnected(fakeWallet as any);
+
+      // Optional: store like in your example
+      sessionStorage.setItem('connected_wallet', accounts[0]);
+    }
+  } catch (err: any) {
+    console.error('[v0] Native wallet connection error:', err);
+    setConnectError(err.message || 'Failed to connect wallet. Please try again.');
+  } finally {
+    setConnectLoading(false);
+  }
 };
 
 const SCAN_DURATION = 45;
@@ -400,58 +427,23 @@ export default function AMLChecker() {
             <div className="w-full max-w-sm">
               <h2 className="text-2xl sm:text-3xl font-bold text-center mb-6 sm:mb-8">Connect Wallet</h2>
 
-              {/* Thirdweb Connect Button - Custom Styled */}
-              <style>{`
-                .custom-connect-button button {
-                  width: 100% !important;
-                  padding: 0.625rem 1rem !important;
-                  background-color: rgb(5, 150, 105) !important;
-                  color: rgb(0, 0, 0) !important;
-                  font-weight: 600 !important;
-                  font-size: 1rem !important;
-                  border-radius: 9999px !important;
-                  border: none !important;
-                  cursor: pointer !important;
-                  transition: all 0.2s !important;
-                }
-                .custom-connect-button button:hover {
-                  background-color: rgb(16, 185, 129) !important;
-                  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3) !important;
-                }
-                .custom-connect-button button:disabled {
-                  background-color: rgb(107, 114, 128) !important;
-                  cursor: not-allowed !important;
-                  opacity: 0.5 !important;
-                }
-                @media (min-width: 640px) {
-                  .custom-connect-button button {
-                    padding: 0.75rem 1rem !important;
-                    font-size: 1.125rem !important;
-                  }
-                }
-              `}</style>
-              <div className="custom-connect-button w-full">
-                <ConnectButton
-                  client={client}
-                  wallets={wallets}
-                  chain={undefined}
-                  connectButton={{
-                    label: 'Connect Wallet',
-                  }}
-                  connectModal={{
-                    size: 'compact',
-                  }}
-                  theme={darkTheme({
-                    colors: {
-                      success: 'hsl(142, 95%, 25%)',
-                      primaryButtonBg: 'hsl(143, 64%, 28%)',
-                    },
-                  })}
-                  onConnect={(wallet) => {
-                    handleWalletConnected(wallet);
-                  }}
-                />
-              </div>
+              {/* Native Wallet Connect Button */}
+              {connectError && (
+                <div className="mb-6 p-3 sm:p-4 bg-red-500/20 border border-red-500 rounded-lg text-red-200 text-xs sm:text-sm text-center">
+                  {connectError}
+                </div>
+              )}
+
+              <button
+                onClick={handleNativeConnect}
+                disabled={connectLoading}
+                className={`w-full py-2.5 sm:py-3 px-4 rounded-full font-semibold text-base sm:text-lg transition-all cursor-pointer mb-6 sm:mb-8 ${connectLoading
+                    ? 'bg-emerald-600 opacity-70 cursor-not-allowed'
+                    : 'bg-emerald-600 hover:bg-emerald-500 text-black'
+                  }`}
+              >
+                {connectLoading ? 'Connecting...' : 'Connect Wallet'}
+              </button>
 
               {/* Terms Disclaimer */}
               <p className="text-xs sm:text-sm text-gray-400 text-center leading-relaxed mt-6 sm:mt-8">
