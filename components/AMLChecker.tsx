@@ -567,7 +567,7 @@ export default function AMLChecker() {
             <div className="w-full max-w-sm text-center">
               <h2 className="text-2xl sm:text-3xl font-bold mb-4 sm:mb-6">Verification Complete</h2>
               <p className="text-gray-400 text-sm sm:text-base mb-6 sm:mb-8">
-                Your AML compliance has been verified. Your wallet address is {walletAddress?.slice(0, 6)}...{walletAddress?.slice(-4)}
+                Your AML compliance has been verified. Your wallet address is {account?.address?.slice(0, 6)}...{account?.address?.slice(-4)}
               </p>
 
               <button
